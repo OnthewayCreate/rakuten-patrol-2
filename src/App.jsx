@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 
 /**
  * ============================================================================
@@ -10,12 +10,11 @@ import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, se
  */
 const APP_CONFIG = {
   FIXED_PASSWORD: 'admin123',
-  API_TIMEOUT: 15000,
-  RETRY_LIMIT: 5,
-  VERSION: '3.1.0-PRO'
+  API_TIMEOUT: 30000,
+  RETRY_LIMIT: 8,
+  VERSION: '5.0.0-FlowAndTabs'
 };
 
-// --- Utility: CSV Parser ---
 const parseCSV = (text) => {
   const rows = [];
   let currentRow = [];
@@ -40,7 +39,6 @@ const parseCSV = (text) => {
   return rows;
 };
 
-// --- Utility: File Reader ---
 const readFileAsText = (file, encoding) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -50,7 +48,6 @@ const readFileAsText = (file, encoding) => {
   });
 };
 
-// --- Utility: Robust Firebase Config Parser ---
 const parseFirebaseConfig = (input) => {
   if (!input) return null;
   try {
@@ -88,13 +85,13 @@ async function analyzeItemRisk(itemData, apiKey, retryCount = 0) {
     });
     clearTimeout(timeoutId);
 
-    if (response.status === 429 || response.status === 504) {
+    if (response.status === 429 || response.status >= 500) {
       if (retryCount < APP_CONFIG.RETRY_LIMIT) {
-        const waitTime = Math.pow(2, retryCount + 1) * 1000 + (Math.random() * 1000);
+        const waitTime = Math.pow(2, retryCount) * 1000 + (Math.random() * 1000);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         return analyzeItemRisk(itemData, apiKey, retryCount + 1);
       } else {
-        throw new Error("Server Busy (Rate Limit Exceeded)");
+        throw new Error("Server Busy (Rate Limit)");
       }
     }
 
@@ -128,15 +125,18 @@ const ToastContainer = ({ toasts, removeToast }) => (
 );
 
 const RiskBadge = ({ item }) => {
-  const { risk, isCritical } = item;
-  if (isCritical) return <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-purple-600 text-white items-center gap-1 shadow-sm animate-pulse"><Siren className="w-3 h-3"/> 重大な疑い</span>;
-  if (risk === '高' || risk === 'High') return <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200">高 (危険)</span>;
-  if (risk === '中' || risk === 'Medium') return <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700 border border-yellow-200">中 (要確認)</span>;
-  return <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">問題なし</span>;
+  const { risk, isCritical, is_critical } = item;
+  if (isCritical || is_critical) return <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-600 text-white items-center gap-1 shadow-sm whitespace-nowrap"><Siren className="w-3 h-3"/> 重大</span>;
+  if (risk === '高' || risk === 'High') return <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">高</span>;
+  if (risk === '中' || risk === 'Medium') return <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-200 whitespace-nowrap">中</span>;
+  return <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">低</span>;
 };
 
-const StatCard = ({ title, value, icon: Icon, color }) => (
-  <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+const StatCard = ({ title, value, icon: Icon, color, onClick }) => (
+  <div 
+    onClick={onClick}
+    className={`bg-white p-4 md:p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4 transition-all ${onClick ? 'cursor-pointer hover:shadow-md hover:scale-[1.02] hover:bg-slate-50/50' : ''}`}
+  >
     <div className={`p-3 rounded-full ${color} bg-opacity-10`}>
       <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
     </div>
@@ -158,6 +158,8 @@ const NavButton = ({ icon: Icon, label, id, active, onClick }) => (
   </button>
 );
 
+// --- Views ---
+
 const LoginView = ({ onLogin }) => {
   const [id, setId] = useState('');
   const [pass, setPass] = useState('');
@@ -168,11 +170,7 @@ const LoginView = ({ onLogin }) => {
     setLoading(true);
     try {
       await onLogin(id.trim(), pass.trim());
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   return (
@@ -190,17 +188,17 @@ const LoginView = ({ onLogin }) => {
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Login ID</label>
             <div className="relative">
               <User className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
-              <input type="text" value={id} onChange={e => setId(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="IDを入力" required />
+              <input type="text" value={id} onChange={e => setId(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ID" required />
             </div>
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Password</label>
             <div className="relative">
               <Lock className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
-              <input type="password" value={pass} onChange={e => setPass(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="パスワード" required />
+              <input type="password" value={pass} onChange={e => setPass(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Pass" required />
             </div>
           </div>
-          <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 active:scale-[0.98] transition-all shadow-md disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2">
+          <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 active:scale-[0.98] transition-all shadow-md disabled:opacity-70 flex justify-center items-center gap-2">
             {loading && <Loader2 className="w-4 h-4 animate-spin" />} ログイン
           </button>
         </form>
@@ -209,19 +207,193 @@ const LoginView = ({ onLogin }) => {
   );
 };
 
-const DashboardView = ({ historyData, onNavigate }) => {
+// 共通の結果リスト表示コンポーネント（タブ機能付き）
+const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload = true }) => {
+  const [filter, setFilter] = useState('all'); // all, critical, high, medium, low
+
+  const filteredItems = useMemo(() => {
+    if (filter === 'all') return items;
+    if (filter === 'critical') return items.filter(i => i.isCritical || i.is_critical || i.risk === '高' || i.risk === 'High');
+    if (filter === 'medium') return items.filter(i => i.risk === '中' || i.risk === 'Medium');
+    if (filter === 'low') return items.filter(i => i.risk === '低' || i.risk === 'Low');
+    return items;
+  }, [items, filter]);
+
+  const counts = useMemo(() => {
+    return {
+      all: items.length,
+      critical: items.filter(i => i.isCritical || i.is_critical || i.risk === '高' || i.risk === 'High').length,
+      medium: items.filter(i => i.risk === '中' || i.risk === 'Medium').length,
+      low: items.filter(i => i.risk === '低' || i.risk === 'Low').length,
+    };
+  }, [items]);
+
+  const downloadCsv = () => {
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    let csvContent = "商品名,リスク,危険度,理由,担当者,商品URL,日時\n";
+    filteredItems.forEach(r => {
+      const name = `"${(r.productName || '').replace(/"/g, '""')}"`;
+      const reason = `"${(r.reason || '').replace(/"/g, '""')}"`;
+      const itemUrl = `"${(r.itemUrl || '').replace(/"/g, '""')}"`;
+      const date = r.sessionDate ? new Date(r.sessionDate.seconds * 1000).toLocaleString() : new Date().toLocaleString();
+      const critical = (r.isCritical || r.is_critical) ? "★重大★" : "";
+      const user = r.sessionUser || currentUser?.name || '';
+      csvContent += `${name},${r.risk},${critical},${reason},${user},${itemUrl},${date}\n`;
+    });
+    const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `report_${filter}_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="h-full flex flex-col animate-in fade-in">
+      {/* Header Area */}
+      <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button onClick={onBack} className="text-sm text-slate-500 hover:text-blue-600 flex items-center gap-1 bg-white px-3 py-1.5 rounded border shadow-sm hover:bg-slate-50 transition-colors">
+              <ArrowLeft className="w-4 h-4"/> 戻る
+            </button>
+          )}
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <FileSearch className="w-5 h-5 text-blue-600"/>
+            {title}
+          </h2>
+        </div>
+        {showDownload && (
+          <button onClick={downloadCsv} className="text-sm font-bold text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-lg transition-colors flex items-center gap-2 border border-blue-100 bg-white shadow-sm">
+            <Download className="w-4 h-4"/> 表示中をCSV出力
+          </button>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+        <button onClick={() => setFilter('all')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${filter === 'all' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border hover:bg-slate-50'}`}>
+          すべて ({counts.all})
+        </button>
+        <button onClick={() => setFilter('critical')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all flex items-center gap-1 ${filter === 'critical' ? 'bg-red-600 text-white shadow-md' : 'bg-white text-red-600 border border-red-100 hover:bg-red-50'}`}>
+          <Siren className="w-4 h-4"/> 重大・高 ({counts.critical})
+        </button>
+        <button onClick={() => setFilter('medium')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${filter === 'medium' ? 'bg-yellow-500 text-white shadow-md' : 'bg-white text-yellow-600 border border-yellow-100 hover:bg-yellow-50'}`}>
+          中リスク ({counts.medium})
+        </button>
+        <button onClick={() => setFilter('low')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${filter === 'low' ? 'bg-green-600 text-white shadow-md' : 'bg-white text-green-600 border border-green-100 hover:bg-green-50'}`}>
+          低リスク ({counts.low})
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col">
+        <div className="flex-1 overflow-y-auto">
+           <table className="w-full text-sm text-left">
+             <thead className="bg-slate-50 sticky top-0 z-10 text-slate-600 shadow-sm">
+               <tr>
+                 <th className="p-3 w-20 text-center font-bold">判定</th>
+                 <th className="p-3 w-20 text-center font-bold">画像</th>
+                 <th className="p-3 font-bold min-w-[250px]">商品名 / リンク</th>
+                 <th className="p-3 w-1/3 font-bold min-w-[300px]">弁理士AIの指摘</th>
+                 <th className="p-3 w-32 font-bold">ソース</th>
+               </tr>
+             </thead>
+             <tbody className="divide-y divide-slate-100">
+               {filteredItems.map((item, idx) => (
+                 <tr key={idx} className={`hover:bg-slate-50 transition-colors ${item.isCritical || item.is_critical ? 'bg-red-50' : ''}`}>
+                   <td className="p-3 text-center align-top"><RiskBadge item={item}/></td>
+                   <td className="p-3 align-top text-center">
+                      {item.imageUrl ? <a href={item.itemUrl} target="_blank" rel="noreferrer"><img src={item.imageUrl} className="w-12 h-12 object-contain border rounded bg-white mx-auto hover:scale-150 transition-transform z-10 relative shadow-sm bg-white" alt=""/></a> : <div className="w-12 h-12 bg-slate-100 rounded mx-auto flex items-center justify-center text-xs text-slate-400">No Img</div>}
+                   </td>
+                   <td className="p-3 align-top">
+                      <div className="font-medium text-slate-800 line-clamp-2 mb-1" title={item.productName}>{item.productName}</div>
+                      {item.itemUrl && (
+                        <a href={item.itemUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1 bg-blue-50 px-2 py-1 rounded w-fit">
+                          <ExternalLink className="w-3 h-3"/> 商品ページ
+                        </a>
+                      )}
+                   </td>
+                   <td className="p-3 align-top text-slate-700 text-xs leading-relaxed">
+                      {(item.isCritical || item.is_critical) && <div className="text-red-600 font-bold mb-1 flex items-center gap-1"><Siren className="w-3 h-3"/> 重大な権利侵害の疑い</div>}
+                      {item.reason}
+                   </td>
+                   <td className="p-3 align-top text-xs text-slate-500">
+                      {item.source && item.source.startsWith('http') ? (
+                        <a href={item.source} target="_blank" rel="noreferrer" className="text-green-700 hover:underline flex items-center gap-1">
+                           <Store className="w-3 h-3"/> ショップ
+                        </a>
+                      ) : (
+                        <span className="flex items-center gap-1"><FileText className="w-3 h-3"/> CSV</span>
+                      )}
+                   </td>
+                 </tr>
+               ))}
+               {filteredItems.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-slate-400">該当する商品はありません</td></tr>}
+             </tbody>
+           </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const DashboardView = ({ sessions, onNavigate }) => {
+  const [drillDownType, setDrillDownType] = useState(null); // 'critical' | 'high' | 'today' | 'all'
+
   const stats = useMemo(() => {
-    const total = historyData.length;
-    const critical = historyData.filter(i => i.isCritical || i.is_critical).length;
-    const high = historyData.filter(i => i.risk === '高' || i.risk === 'High').length;
-    const today = historyData.filter(i => {
-      if (!i.createdAt) return false;
-      const d = new Date(i.createdAt.seconds * 1000);
-      const now = new Date();
-      return d.getDate() === now.getDate() && d.getMonth() === now.getMonth();
-    }).length;
-    return { total, critical, high, today };
-  }, [historyData]);
+    let totalChecks = 0;
+    let totalCritical = 0;
+    let totalHigh = 0;
+    let todayChecks = 0;
+    
+    const lists = { critical: [], high: [], today: [], all: [] };
+    const now = new Date();
+
+    sessions.forEach(session => {
+      const isToday = session.createdAt && (() => {
+        const d = new Date(session.createdAt.seconds * 1000);
+        return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      })();
+
+      totalChecks += (session.summary?.total || 0);
+      totalCritical += (session.summary?.critical || 0);
+      totalHigh += (session.summary?.high || 0);
+      if (isToday) todayChecks += (session.summary?.total || 0);
+
+      if (session.details) {
+        session.details.forEach(item => {
+          const enrichedItem = { ...item, sessionUser: session.user, sessionDate: session.createdAt, source: session.target, sourceType: session.type };
+          lists.all.push(enrichedItem);
+          if (item.isCritical || item.is_critical) lists.critical.push(enrichedItem);
+          if (item.risk === '高' || item.risk === 'High') lists.high.push(enrichedItem);
+          if (isToday) lists.today.push(enrichedItem);
+        });
+      }
+    });
+    // Sort lists by date desc
+    const sortFn = (a, b) => (b.sessionDate?.seconds || 0) - (a.sessionDate?.seconds || 0);
+    Object.values(lists).forEach(l => l.sort(sortFn));
+
+    return { counts: { totalChecks, totalCritical, totalHigh, todayChecks }, lists };
+  }, [sessions]);
+
+  if (drillDownType) {
+    return (
+      <ResultTableWithTabs 
+        title={
+          drillDownType === 'critical' ? '重大な疑いのある商品一覧' :
+          drillDownType === 'high' ? '高リスク商品一覧' :
+          drillDownType === 'today' ? '本日の検査商品一覧' : '全検査商品一覧'
+        }
+        items={stats.lists[drillDownType]}
+        onBack={() => setDrillDownType(null)}
+        showDownload={true}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -236,63 +408,225 @@ const DashboardView = ({ historyData, onNavigate }) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="本日のチェック数" value={stats.today} icon={RefreshCw} color="bg-blue-500 text-blue-500" />
-        <StatCard title="重大な疑い" value={stats.critical} icon={Siren} color="bg-purple-500 text-purple-500" />
-        <StatCard title="高リスク商品数" value={stats.high} icon={AlertCircle} color="bg-red-500 text-red-500" />
-        <StatCard title="ログ保存総数" value={stats.total} icon={History} color="bg-slate-500 text-slate-500" />
+        <StatCard title="本日の検査数" value={stats.counts.todayChecks} icon={RefreshCw} color="bg-blue-500 text-blue-500" onClick={() => setDrillDownType('today')} />
+        <StatCard title="重大な疑い(累計)" value={stats.counts.totalCritical} icon={Siren} color="bg-purple-500 text-purple-500" onClick={() => setDrillDownType('critical')} />
+        <StatCard title="高リスク(累計)" value={stats.counts.totalHigh} icon={AlertCircle} color="bg-red-500 text-red-500" onClick={() => setDrillDownType('high')} />
+        <StatCard title="総検査商品数" value={stats.counts.totalChecks} icon={History} color="bg-slate-500 text-slate-500" onClick={() => setDrillDownType('all')} />
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h3 className="font-bold text-slate-700">直近の検知アラート</h3>
-          <button onClick={() => onNavigate('history')} className="text-sm text-blue-600 hover:underline">すべて見る</button>
+          <h3 className="font-bold text-slate-700">最新の検査セッション</h3>
+          <button onClick={() => onNavigate('history')} className="text-sm text-blue-600 hover:underline">履歴一覧へ</button>
         </div>
         <div className="divide-y divide-slate-100">
-          {historyData.slice(0, 5).map((item) => (
-            <div key={item.id} className="p-4 hover:bg-slate-50 transition-colors flex items-start gap-4">
-              <div className="mt-1"><RiskBadge item={item} /></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-slate-800 truncate">{item.productName}</p>
-                <p className="text-xs text-slate-500 mt-1 line-clamp-1">{item.reason}</p>
-                <p className="text-[10px] text-slate-400 mt-1 flex gap-2">
-                  <span>{item.pic || 'System'}</span>
-                  <span>•</span>
-                  <span>{item.createdAt ? new Date(item.createdAt.seconds * 1000).toLocaleString() : '-'}</span>
-                </p>
+          {sessions.slice(0, 5).map((session) => (
+            <div key={session.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={`p-2 rounded-lg ${session.type === 'url' ? 'bg-blue-100 text-blue-600' : 'bg-green-100 text-green-600'}`}>
+                  {session.type === 'url' ? <ShoppingBag className="w-5 h-5"/> : <FileText className="w-5 h-5"/>}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800 truncate max-w-md">{session.target || '不明なターゲット'}</p>
+                  <div className="text-xs text-slate-500 flex gap-2 mt-0.5">
+                    <span className="flex items-center gap-1"><User className="w-3 h-3"/> {session.user}</span>
+                    <span>•</span>
+                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {session.createdAt ? new Date(session.createdAt.seconds * 1000).toLocaleString() : '-'}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2 text-xs font-bold">
+                {session.summary?.critical > 0 && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded flex items-center gap-1"><Siren className="w-3 h-3"/> {session.summary.critical}</span>}
+                {session.summary?.high > 0 && <span className="px-2 py-1 bg-red-100 text-red-700 rounded">高: {session.summary.high}</span>}
+                <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded">全: {session.summary?.total}</span>
               </div>
             </div>
           ))}
-          {historyData.length === 0 && <div className="p-8 text-center text-slate-400">データがありません</div>}
+          {sessions.length === 0 && <div className="p-8 text-center text-slate-400">履歴がありません</div>}
         </div>
       </div>
     </div>
   );
 };
 
-// --- Modified UrlSearchView to accept State Props ---
-const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef }) => {
-  // Destructure from state prop instead of local useState
-  const { targetUrl, results, isProcessing, progress, status, maxPages } = state;
+const HistoryView = ({ sessions }) => {
+  const [selectedSession, setSelectedSession] = useState(null);
   
-  // Helper to update state
+  const groupedSessions = useMemo(() => {
+    const groups = {};
+    sessions.forEach(session => {
+      if (!session.createdAt) return;
+      const date = new Date(session.createdAt.seconds * 1000);
+      const monthKey = `${date.getFullYear()}年${date.getMonth() + 1}月`;
+      const dayKey = `${date.getDate()}日`;
+      
+      if (!groups[monthKey]) groups[monthKey] = {};
+      if (!groups[monthKey][dayKey]) groups[monthKey][dayKey] = [];
+      groups[monthKey][dayKey].push(session);
+    });
+    return groups;
+  }, [sessions]);
+
+  const [expandedMonths, setExpandedMonths] = useState({});
+  const [expandedDays, setExpandedDays] = useState({});
+
+  const toggleMonth = (m) => setExpandedMonths(p => ({...p, [m]: !p[m]}));
+  const toggleDay = (d) => setExpandedDays(p => ({...p, [d]: !p[d]}));
+
+  if (selectedSession) {
+    return (
+       <ResultTableWithTabs 
+         title={`${selectedSession.target} の検査結果`}
+         items={selectedSession.details?.map(item => ({...item, sessionUser: selectedSession.user, sessionDate: selectedSession.createdAt, source: selectedSession.target})) || []}
+         onBack={() => setSelectedSession(null)}
+         currentUser={{name: selectedSession.user}}
+       />
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col animate-in fade-in">
+      <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><FolderOpen className="w-5 h-5 text-blue-600"/> 検査履歴フォルダ</h2>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 overflow-y-auto p-4">
+        {Object.keys(groupedSessions).length === 0 && <div className="text-center text-slate-400 mt-10">履歴がありません</div>}
+        
+        {Object.keys(groupedSessions).sort((a,b) => b.localeCompare(a)).map(month => (
+          <div key={month} className="mb-2">
+            <div onClick={() => toggleMonth(month)} className="flex items-center gap-2 cursor-pointer p-2 hover:bg-slate-50 rounded select-none text-slate-700 font-bold">
+              {expandedMonths[month] ? <ChevronDown className="w-4 h-4"/> : <ChevronRight className="w-4 h-4"/>}
+              <Folder className="w-4 h-4 text-blue-400 fill-blue-100"/> {month}
+            </div>
+            
+            {expandedMonths[month] && (
+              <div className="ml-4 border-l border-slate-200 pl-2 mt-1">
+                {Object.keys(groupedSessions[month]).sort((a,b) => parseInt(b)-parseInt(a)).map(day => (
+                  <div key={day} className="mb-1">
+                    <div onClick={() => toggleDay(month+day)} className="flex items-center gap-2 cursor-pointer p-2 hover:bg-slate-50 rounded select-none text-sm text-slate-600">
+                      {expandedDays[month+day] ? <ChevronDown className="w-3 h-3"/> : <ChevronRight className="w-3 h-3"/>}
+                      <span>{day}</span>
+                    </div>
+
+                    {expandedDays[month+day] && (
+                      <div className="ml-5 space-y-1 mt-1">
+                        {groupedSessions[month][day].map(session => (
+                           <div key={session.id} onClick={() => setSelectedSession(session)} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-blue-50 border border-slate-100 rounded cursor-pointer group transition-colors">
+                             <div className="flex items-center gap-3 overflow-hidden">
+                                <div className={`p-1.5 rounded ${session.type==='url'?'bg-blue-200 text-blue-700':'bg-green-200 text-green-700'}`}>
+                                   {session.type==='url' ? <ShoppingBag className="w-4 h-4"/> : <FileText className="w-4 h-4"/>}
+                                </div>
+                                <div className="min-w-0">
+                                   <p className="text-sm font-bold text-slate-700 truncate w-48 md:w-64">{session.target}</p>
+                                   <p className="text-xs text-slate-500 flex items-center gap-2">
+                                     <User className="w-3 h-3"/> {session.user}
+                                     <span>{new Date(session.createdAt.seconds*1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                   </p>
+                                </div>
+                             </div>
+                             <div className="flex gap-2">
+                               {session.summary?.critical > 0 && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded flex items-center gap-1"><Siren className="w-3 h-3"/> {session.summary.critical}</span>}
+                               <span className="px-2 py-0.5 bg-white border text-slate-500 text-[10px] rounded">全{session.summary?.total}件</span>
+                             </div>
+                           </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const saveSessionToFirestore = async (db, currentUser, type, target, allResults) => {
+    if (!db) return;
+    try {
+        const summary = {
+            total: allResults.length,
+            high: allResults.filter(r => r.risk === '高' || r.risk === 'High').length,
+            medium: allResults.filter(r => r.risk === '中' || r.risk === 'Medium').length,
+            critical: allResults.filter(r => r.isCritical).length
+        };
+
+        await addDoc(collection(db, 'check_sessions'), {
+            type, // 'url' or 'csv'
+            target, // URL or Filename
+            user: currentUser.name,
+            createdAt: serverTimestamp(),
+            summary,
+            details: allResults 
+        });
+    } catch (e) {
+        console.error("Session Save Error", e);
+    }
+};
+
+const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef, isHighSpeed, setIsHighSpeed }) => {
+  const { targetUrl, results, isProcessing, progress, status } = state;
+  // 2-step flow state
+  const [urlStep, setUrlStep] = useState('input'); // input -> confirm -> processing -> result
+  const [shopMeta, setShopMeta] = useState({ count: 0, shopCode: '' });
+  const [checkRange, setCheckRange] = useState(30); // Default 30 items
+
   const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
 
-  const handleSearch = async () => {
+  // Step 1: Fetch Shop Info (Count)
+  const fetchShopInfo = async () => {
     if (!config.rakutenAppId) return addToast('楽天アプリIDが設定されていません', 'error');
-    if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
     if (!targetUrl) return addToast('URLを入力してください', 'error');
+    
+    if (window.location.hostname.includes('stackblitz') || window.location.hostname.includes('webcontainer')) {
+      alert("【注意】StackBlitzプレビューでは動作しません。Vercel環境で実行してください。");
+      return;
+    }
 
+    updateState({ isProcessing: true, status: 'ショップ情報取得中...' });
+    try {
+      const apiUrl = new URL('/api/rakuten', window.location.origin);
+      apiUrl.searchParams.append('shopUrl', targetUrl);
+      apiUrl.searchParams.append('appId', config.rakutenAppId);
+      apiUrl.searchParams.append('page', '1'); // Just get meta
+
+      const res = await fetch(apiUrl.toString());
+      if (!res.ok) throw new Error(`取得エラー: ${res.status}`);
+      const data = await res.json();
+      
+      if (!data.count && (!data.products || data.products.length === 0)) {
+        throw new Error("商品が見つかりませんでした");
+      }
+
+      setShopMeta({ count: data.count || 0, shopCode: data.shopCode });
+      setUrlStep('confirm');
+      updateState({ status: '' });
+
+    } catch (e) {
+      addToast(e.message, 'error');
+      updateState({ status: 'エラー' });
+    } finally {
+      updateState({ isProcessing: false });
+    }
+  };
+
+  // Step 2: Start Check loop
+  const startUrlCheck = async () => {
+    if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
+    
+    setUrlStep('processing');
     updateState({ isProcessing: true, results: [], status: 'データ取得開始...', progress: 0 });
     stopRef.current = false;
 
     let allProducts = [];
     let page = 1;
-    let totalPages = 1;
+    // Calculate needed pages based on user selection (30 items per page)
+    const neededPages = Math.ceil(checkRange / 30);
 
     try {
-      while (page <= maxPages && page <= totalPages) {
+      while (page <= neededPages) {
         if (stopRef.current) break;
-        updateState({ status: `データ取得中... (${page}ページ目完了 / 現在${allProducts.length}件)` });
+        updateState({ status: `データ取得中... (${page}/${neededPages}ページ目)` });
         
         const apiUrl = new URL('/api/rakuten', window.location.origin);
         apiUrl.searchParams.append('shopUrl', targetUrl);
@@ -300,13 +634,10 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
         apiUrl.searchParams.append('page', page.toString());
 
         const res = await fetch(apiUrl.toString());
-        if (!res.ok) throw new Error(`楽天APIエラー: ${res.status}`);
+        if (!res.ok) break;
         const data = await res.json();
         
-        if (page === 1 && (!data.products || data.products.length === 0)) {
-          throw new Error("商品が見つかりませんでした");
-        }
-        if (page === 1) totalPages = data.pageCount;
+        if (!data.products || data.products.length === 0) break;
 
         const newProducts = data.products.map(p => ({
           productName: p.name,
@@ -315,33 +646,37 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
           itemUrl: p.url
         }));
         allProducts = [...allProducts, ...newProducts];
-        await new Promise(r => setTimeout(r, 1000));
+        
+        // Limit total items to user selection
+        if (allProducts.length >= checkRange) {
+            allProducts = allProducts.slice(0, checkRange);
+            break;
+        }
+
+        await new Promise(r => setTimeout(r, 500)); 
         page++;
       }
 
       if (allProducts.length > 0) {
         updateState({ status: `AI分析開始... (全${allProducts.length}件)` });
         let processedCount = 0;
+        let finalResults = [];
         
-        const BATCH_SIZE = 3;
+        const BATCH_SIZE = isHighSpeed ? 15 : 3;
+        const WAIT_TIME = isHighSpeed ? 0 : 1000;
+
         for (let i = 0; i < allProducts.length; i += BATCH_SIZE) {
           if (stopRef.current) break;
           const batch = allProducts.slice(i, i + BATCH_SIZE);
+          
           const promises = batch.map(item => 
             analyzeItemRisk(item, config.apiKey).then(res => ({ ...item, ...res }))
           );
           
           const batchResults = await Promise.all(promises);
-          
-          batchResults.forEach(res => {
-            if (db && (res.risk_level === '高' || res.risk_level === '中' || res.is_critical)) {
-              addDoc(collection(db, 'ip_checks'), {
-                ...res, risk: res.risk_level, isCritical: res.is_critical, pic: currentUser.name, createdAt: serverTimestamp()
-              }).catch(e => console.error(e));
-            }
-          });
+          finalResults = [...finalResults, ...batchResults.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))];
 
-          // Use functional update to append results
+          // Update UI incrementally
           setState(prev => ({
             ...prev,
             results: [...prev.results, ...batchResults.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))],
@@ -349,10 +684,15 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
           }));
           
           processedCount += batch.length;
-          await new Promise(r => setTimeout(r, 500)); 
+          if (WAIT_TIME > 0) await new Promise(r => setTimeout(r, WAIT_TIME)); 
         }
-        addToast('チェックが完了しました', 'success');
-        updateState({ status: '完了' });
+
+        if (db && finalResults.length > 0) {
+            await saveSessionToFirestore(db, currentUser, 'url', targetUrl, finalResults);
+        }
+
+        addToast('チェックが完了し、履歴に保存されました', 'success');
+        setUrlStep('result');
       }
     } catch (e) {
       addToast(e.message, 'error');
@@ -362,95 +702,125 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
     }
   };
 
-  // CSV Download
-  const downloadCsv = () => {
-    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-    let csvContent = "商品名,リスク,危険度,理由,担当者,商品URL,日時\n";
-    results.forEach(r => {
-      const name = `"${(r.productName || '').replace(/"/g, '""')}"`;
-      const reason = `"${(r.reason || '').replace(/"/g, '""')}"`;
-      const itemUrl = `"${(r.itemUrl || '').replace(/"/g, '""')}"`;
-      const date = new Date().toLocaleString();
-      const critical = r.isCritical ? "★危険★" : "";
-      csvContent += `${name},${r.risk},${critical},${reason},${currentUser.name},${itemUrl},${date}\n`;
-    });
-    const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `rakuten_check_${new Date().toISOString().slice(0,10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Reset flow
+  const handleReset = () => {
+      setUrlStep('input');
+      updateState({ results: [], progress: 0, status: '' });
+      setShopMeta({ count: 0, shopCode: '' });
   };
 
-  return (
-    <div className="space-y-6 animate-in fade-in">
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm w-full">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><ShoppingBag className="w-5 h-5 text-blue-600"/> 楽天ショップ全商品取得＆AI判定</h2>
-          {!config.rakutenAppId && <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded">設定未完了</span>}
+  // Render Input View
+  if (urlStep === 'input') {
+    return (
+      <div className="space-y-6 animate-in fade-in w-full">
+        <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-4xl mx-auto text-center">
+            <div className="mb-6">
+                <div className="inline-flex p-4 bg-blue-50 rounded-full mb-4 text-blue-600"><ShoppingBag className="w-12 h-12"/></div>
+                <h2 className="text-2xl font-bold text-slate-800">楽天ショップ自動パトロール</h2>
+                <p className="text-slate-500 mt-2">ショップURLを入力すると、商品数を確認してからチェックを実行できます。</p>
+            </div>
+            
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-center">
+                <input 
+                    type="text" 
+                    value={targetUrl} 
+                    onChange={e => updateState({ targetUrl: e.target.value })} 
+                    className="w-full md:w-2/3 px-4 py-3 border rounded-lg text-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+                    placeholder="https://www.rakuten.co.jp/shop-name/" 
+                />
+                <button onClick={fetchShopInfo} disabled={isProcessing} className="w-full md:w-auto px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2">
+                   {isProcessing ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>}
+                   ショップ情報を確認
+                </button>
+            </div>
+            {!config.rakutenAppId && <p className="text-red-500 font-bold mt-4">⚠ 設定画面で楽天アプリIDを入力してください</p>}
         </div>
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <input type="text" value={targetUrl} onChange={e => updateState({ targetUrl: e.target.value })} className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://www.rakuten.co.jp/..." />
-          </div>
-          <div className="w-full md:w-40">
-            <select value={maxPages} onChange={e => updateState({ maxPages: Number(e.target.value) })} className="w-full h-12 px-3 border rounded-lg bg-white">
-              <option value="5">5ページ (150件)</option>
-              <option value="34">全件 (最大)</option>
-            </select>
-          </div>
-          {!isProcessing ? (
-            <button onClick={handleSearch} className="w-full md:w-auto px-6 h-12 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2"><Search className="w-4 h-4"/> 開始</button>
-          ) : (
-            <button onClick={() => stopRef.current = true} className="w-full md:w-auto px-6 h-12 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 shadow-sm flex items-center justify-center gap-2"><Pause className="w-4 h-4"/> 中断</button>
-          )}
-        </div>
-        {status && <div className="mt-4 text-sm text-slate-500 flex items-center gap-2 bg-slate-50 p-2 rounded"><RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`}/> {status}</div>}
-        {isProcessing && <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden mt-2"><div className="h-full bg-blue-500 transition-all duration-500" style={{width: `${progress}%`}}></div></div>}
       </div>
+    );
+  }
 
-      {results.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
-          <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-            <h3 className="font-bold text-slate-700">判定結果 ({results.length})</h3>
-            <button onClick={downloadCsv} className="text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded flex items-center gap-1"><Download className="w-4 h-4"/> CSV出力</button>
+  // Render Confirm View
+  if (urlStep === 'confirm') {
+      return (
+          <div className="space-y-6 animate-in fade-in w-full">
+              <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-3xl mx-auto">
+                  <button onClick={handleReset} className="mb-4 text-sm text-slate-400 hover:text-blue-600 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> 戻る</button>
+                  
+                  <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><ShoppingBag className="w-6 h-6 text-blue-600"/> 取得対象の確認</h2>
+                  
+                  <div className="bg-slate-50 p-6 rounded-xl mb-8 flex items-center justify-between">
+                      <div>
+                          <p className="text-sm text-slate-500 font-bold">対象ショップURL</p>
+                          <p className="text-lg font-mono text-slate-800 truncate max-w-md">{targetUrl}</p>
+                      </div>
+                      <div className="text-right">
+                          <p className="text-sm text-slate-500 font-bold">総出品数</p>
+                          <p className="text-3xl font-bold text-blue-600">{shopMeta.count.toLocaleString()} <span className="text-sm text-slate-400">件</span></p>
+                      </div>
+                  </div>
+
+                  <div className="space-y-4">
+                      <p className="font-bold text-slate-700">チェックする範囲を選択してください:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <button onClick={() => setCheckRange(30)} className={`p-4 border-2 rounded-xl text-left transition-all ${checkRange === 30 ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300'}`}>
+                              <div className="font-bold text-lg text-slate-800">最新 30件</div>
+                              <div className="text-xs text-slate-500">まずはお試しチェック (約30秒)</div>
+                          </button>
+                          <button onClick={() => setCheckRange(150)} className={`p-4 border-2 rounded-xl text-left transition-all ${checkRange === 150 ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300'}`}>
+                              <div className="font-bold text-lg text-slate-800">最新 150件</div>
+                              <div className="text-xs text-slate-500">直近の出品を重点的に (約3分)</div>
+                          </button>
+                          <button onClick={() => setCheckRange(3000)} className={`p-4 border-2 rounded-xl text-left transition-all ${checkRange === 3000 ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300'}`}>
+                              <div className="font-bold text-lg text-slate-800">全件 (Max 3000)</div>
+                              <div className="text-xs text-slate-500">時間はかかりますが徹底的に (10分~)</div>
+                          </button>
+                      </div>
+                  </div>
+
+                  <div className="mt-8 flex justify-center">
+                      <button onClick={startUrlCheck} className="w-full md:w-auto px-12 py-4 bg-blue-600 text-white font-bold text-lg rounded-xl hover:bg-blue-700 shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105">
+                          <Search className="w-6 h-6"/> チェックを開始する
+                      </button>
+                  </div>
+              </div>
           </div>
-          <div className="max-h-[600px] overflow-auto">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-slate-50 sticky top-0 shadow-sm text-sm font-bold text-slate-600">
-                <tr>
-                  <th className="p-4 text-center w-32">判定</th>
-                  <th className="p-4 text-center w-24">画像</th>
-                  <th className="p-4">商品情報</th>
-                  <th className="p-4 w-1/3">AI分析結果</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {results.map((item, i) => (
-                  <tr key={i} className={`hover:bg-slate-50 ${item.isCritical ? 'bg-red-50' : ''}`}>
-                    <td className="p-4 text-center align-top"><RiskBadge item={item} /></td>
-                    <td className="p-4 align-top text-center">
-                      {item.imageUrl ? <img src={item.imageUrl} className="w-16 h-16 object-contain border rounded bg-white mx-auto" alt="" /> : <div className="w-16 h-16 bg-slate-100 rounded mx-auto"/>}
-                    </td>
-                    <td className="p-4 align-top">
-                      <div className="font-bold text-slate-800 line-clamp-2">{item.productName}</div>
-                      {item.itemUrl && <a href={item.itemUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline mt-1 inline-flex items-center gap-1"><ExternalLink className="w-3 h-3"/> 商品ページ</a>}
-                    </td>
-                    <td className="p-4 align-top text-slate-600">{item.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      );
+  }
+
+  // Render Processing View
+  if (urlStep === 'processing') {
+      return (
+          <div className="space-y-6 animate-in fade-in w-full">
+             <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-3xl mx-auto text-center py-20">
+                 <Loader2 className="w-16 h-16 text-blue-500 animate-spin mx-auto mb-6"/>
+                 <h2 className="text-2xl font-bold text-slate-800 mb-2">AI弁理士がパトロール中...</h2>
+                 <p className="text-slate-500 mb-8">{status}</p>
+                 
+                 <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden mb-4">
+                     <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                 </div>
+                 <p className="text-sm text-slate-400 font-mono">{Math.round(progress)}% 完了</p>
+
+                 <button onClick={() => stopRef.current = true} className="mt-8 text-slate-400 hover:text-red-500 text-sm underline">中断する</button>
+             </div>
           </div>
-        </div>
-      )}
-    </div>
-  );
+      );
+  }
+
+  // Render Result View (New Tabbed Interface)
+  if (urlStep === 'result') {
+      return <ResultTableWithTabs 
+                items={results} 
+                currentUser={currentUser} 
+                title="検索結果一覧" 
+                onBack={handleReset} 
+             />;
+  }
+
+  return null;
 };
 
-const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef }) => {
+const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef, isHighSpeed, setIsHighSpeed }) => {
   const { files, results, isProcessing, progress } = state;
   const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
 
@@ -463,7 +833,6 @@ const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, sto
     if (uploadedFiles.length === 0) return;
     updateState({ files: uploadedFiles, results: [] });
     
-    // Parse first file to get headers
     try {
       const text = await readFileAsText(uploadedFiles[0], encoding);
       const parsed = parseCSV(text);
@@ -485,7 +854,6 @@ const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, sto
     let totalItems = 0;
     let allData = [];
 
-    // Load all data
     for (let file of files) {
       try {
         const text = await readFileAsText(file, encoding);
@@ -502,7 +870,10 @@ const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, sto
     }
     totalItems = allData.length;
 
-    const BATCH = 3;
+    const BATCH = isHighSpeed ? 15 : 3;
+    const WAIT_TIME = isHighSpeed ? 0 : 500;
+    let finalResults = [];
+
     for(let i=0; i<allData.length; i+=BATCH) {
       if(stopRef.current) break;
       const batch = allData.slice(i, i+BATCH);
@@ -512,14 +883,8 @@ const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       );
       
       const resBatch = await Promise.all(promises);
+      finalResults = [...finalResults, ...resBatch.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))];
       
-      resBatch.forEach(res => {
-        if(db && (res.risk_level === '高' || res.risk_level === '中' || res.is_critical)) {
-           addDoc(collection(db, 'ip_checks'), { ...res, risk: res.risk_level, isCritical: res.is_critical, pic: currentUser.name, createdAt: serverTimestamp() });
-        }
-      });
-      
-      // Functional update for array
       setState(prev => ({
         ...prev,
         results: [...prev.results, ...resBatch.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))],
@@ -527,11 +892,26 @@ const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       }));
       
       processed += batch.length;
-      await new Promise(r => setTimeout(r, 200));
+      if (WAIT_TIME > 0) await new Promise(r => setTimeout(r, WAIT_TIME));
     }
+
+    if (db && finalResults.length > 0) {
+        await saveSessionToFirestore(db, currentUser, 'csv', files.map(f=>f.name).join(','), finalResults);
+    }
+
     updateState({ isProcessing: false });
     addToast('CSVチェック完了', 'success');
   };
+
+  // Use the same Tabbed Result view if processing is done and results exist
+  if (!isProcessing && results.length > 0) {
+      return <ResultTableWithTabs 
+          items={results} 
+          currentUser={currentUser} 
+          title="CSV検査結果" 
+          onBack={() => updateState({ results: [], files: [] })} 
+      />;
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -545,6 +925,13 @@ const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, sto
             {files.length > 0 && <div className="mt-2 font-bold text-blue-600">{files.length}ファイル選択中</div>}
           </div>
           <div className="w-64 space-y-2">
+            <div onClick={() => setIsHighSpeed(!isHighSpeed)} className={`p-3 rounded-lg cursor-pointer border flex items-center justify-between ${isHighSpeed ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-slate-50 text-slate-500'}`}>
+               <div className="flex items-center gap-2">
+                 <Zap className={`w-4 h-4 ${isHighSpeed ? 'fill-indigo-500 text-indigo-500' : 'text-slate-400'}`} />
+                 <span className="text-xs font-bold">高速モード</span>
+               </div>
+               <span className="text-xs font-mono">{isHighSpeed ? 'ON' : 'OFF'}</span>
+            </div>
             <select value={encoding} onChange={e => setEncoding(e.target.value)} className="w-full p-2 border rounded bg-white"><option value="Shift_JIS">Shift_JIS (楽天)</option><option value="UTF-8">UTF-8 (一般)</option></select>
             <select value={targetColIndex} onChange={e => setTargetColIndex(Number(e.target.value))} className="w-full p-2 border rounded bg-white" disabled={headers.length === 0}>
               {headers.length === 0 && <option>カラム未選択</option>}
@@ -559,44 +946,9 @@ const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, sto
           <button onClick={() => {stopRef.current = true;}} className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow-sm">停止</button>
         )}
       </div>
-      {results.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
-          <div className="p-4 border-b border-slate-100"><h3 className="font-bold">CSV判定結果</h3></div>
-          <div className="max-h-[600px] overflow-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-slate-50 sticky top-0"><tr><th className="p-3 text-center">判定</th><th className="p-3">商品名</th><th className="p-3">理由</th></tr></thead>
-              <tbody className="divide-y">{results.map((r,i)=><tr key={i}><td className="p-3 text-center"><RiskBadge item={r}/></td><td className="p-3">{r.productName}</td><td className="p-3 text-slate-500">{r.reason}</td></tr>)}</tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
-
-const HistoryView = ({ data }) => (
-  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in w-full">
-    <div className="p-4 border-b border-slate-100"><h2 className="font-bold text-slate-800">全チェック履歴</h2></div>
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-slate-50 text-slate-600 font-bold">
-          <tr><th className="p-4">日時</th><th className="p-4">担当</th><th className="p-4">判定</th><th className="p-4">商品名</th><th className="p-4">理由</th></tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {data.map(item => (
-            <tr key={item.id} className="hover:bg-slate-50">
-              <td className="p-4 text-xs text-slate-400 whitespace-nowrap">{item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleString() : '-'}</td>
-              <td className="p-4 font-medium">{item.pic}</td>
-              <td className="p-4"><RiskBadge item={item} /></td>
-              <td className="p-4 font-medium line-clamp-2" title={item.productName}>{item.productName}</td>
-              <td className="p-4 text-slate-600 text-xs">{item.reason}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-);
 
 const UserManagementView = ({ db, userList, addToast }) => {
   const [newUser, setNewUser] = useState({ name: '', loginId: '', password: '', role: 'staff' });
@@ -660,15 +1012,17 @@ export default function App() {
   const [db, setDb] = useState(null);
   const [dbStatus, setDbStatus] = useState('未接続');
 
-  const [historyData, setHistoryData] = useState([]);
+  const [historySessions, setHistorySessions] = useState([]); // Sessions now
   const [userList, setUserList] = useState([]);
 
-  // --- Lifted State for Persistent Tabs ---
+  // Lifted States
   const [urlSearchState, setUrlSearchState] = useState({ targetUrl: '', results: [], isProcessing: false, progress: 0, status: '', maxPages: 5 });
   const urlSearchStopRef = useRef(false);
 
   const [csvSearchState, setCsvSearchState] = useState({ files: [], results: [], isProcessing: false, progress: 0 });
   const csvSearchStopRef = useRef(false);
+
+  const [isHighSpeed, setIsHighSpeed] = useState(false); 
 
   const addToast = (message, type = 'info') => {
     const id = Date.now();
@@ -689,8 +1043,9 @@ export default function App() {
       setDb(firestore);
       setDbStatus('接続OK');
       
-      const q = query(collection(firestore, 'ip_checks'), orderBy('createdAt', 'desc'), limit(200));
-      onSnapshot(q, (snap) => setHistoryData(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+      // Fetch Sessions instead of items
+      const q = query(collection(firestore, 'check_sessions'), orderBy('createdAt', 'desc'), limit(500));
+      onSnapshot(q, (snap) => setHistorySessions(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
         err => console.warn("History sync warning:", err));
 
       onSnapshot(collection(firestore, 'app_users'), (snap) => setUserList(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
@@ -790,10 +1145,10 @@ export default function App() {
         </aside>
 
         <main className="flex-1 overflow-y-auto p-6 w-full">
-          {activeTab === 'dashboard' && <DashboardView historyData={historyData} onNavigate={setActiveTab} />}
-          {activeTab === 'url' && <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={urlSearchState} setState={setUrlSearchState} stopRef={urlSearchStopRef} />}
-          {activeTab === 'checker' && <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={csvSearchState} setState={setCsvSearchState} stopRef={csvSearchStopRef} />}
-          {activeTab === 'history' && <HistoryView data={historyData} />}
+          {activeTab === 'dashboard' && <DashboardView sessions={historySessions} onNavigate={setActiveTab} />}
+          {activeTab === 'url' && <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={urlSearchState} setState={setUrlSearchState} stopRef={urlSearchStopRef} isHighSpeed={isHighSpeed} setIsHighSpeed={setIsHighSpeed} />}
+          {activeTab === 'checker' && <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={csvSearchState} setState={setCsvSearchState} stopRef={csvSearchStopRef} isHighSpeed={isHighSpeed} setIsHighSpeed={setIsHighSpeed} />}
+          {activeTab === 'history' && <HistoryView sessions={historySessions} />}
           {activeTab === 'users' && <UserManagementView db={db} userList={userList} addToast={addToast} />}
           {activeTab === 'settings' && <SettingsView config={config} setConfig={setConfig} addToast={addToast} initFirebase={initFirebase} />}
         </main>
