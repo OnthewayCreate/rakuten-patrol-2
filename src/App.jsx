@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
 
 /**
  * ============================================================================
@@ -12,7 +12,7 @@ const APP_CONFIG = {
   FIXED_PASSWORD: 'admin123',
   API_TIMEOUT: 30000,
   RETRY_LIMIT: 8,
-  VERSION: '5.0.0-FlowAndTabs'
+  VERSION: '6.0.1-FixBadge'
 };
 
 const parseCSV = (text) => {
@@ -158,6 +158,14 @@ const NavButton = ({ icon: Icon, label, id, active, onClick }) => (
   </button>
 );
 
+// ここで一度だけ定義します
+const SessionStatusBadge = ({ status }) => {
+  if (status === 'completed') return <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">完了</span>;
+  if (status === 'processing') return <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold animate-pulse">検査中</span>;
+  if (status === 'aborted' || status === 'paused') return <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">中断</span>;
+  return <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{status || '不明'}</span>;
+};
+
 // --- Views ---
 
 const LoginView = ({ onLogin }) => {
@@ -177,25 +185,25 @@ const LoginView = ({ onLogin }) => {
     <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center p-4">
       <div className="bg-white p-8 rounded-2xl shadow-xl max-w-sm w-full border border-white/50 backdrop-blur-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex p-4 bg-blue-600 rounded-xl shadow-lg shadow-blue-200 mb-4">
-            <ShieldAlert className="w-8 h-8 text-white" />
+          <div className="inline-flex p-4 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-2xl shadow-lg shadow-indigo-200 mb-4 transform hover:scale-105 transition-transform">
+            <ShieldAlert className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800">Rakuten Patrol</h1>
-          <p className="text-sm text-slate-500 mt-1">知的財産権侵害対策システム</p>
+          <h1 className="text-2xl font-bold text-slate-800">楽天パトロール Pro</h1>
+          <p className="text-sm text-slate-500 mt-2 font-medium">AI弁理士による権利侵害チェックシステム</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Login ID</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">ログインID</label>
             <div className="relative">
               <User className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
-              <input type="text" value={id} onChange={e => setId(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ID" required />
+              <input type="text" value={id} onChange={e => setId(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="IDを入力" required />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Password</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">パスワード</label>
             <div className="relative">
               <Lock className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
-              <input type="password" value={pass} onChange={e => setPass(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Pass" required />
+              <input type="password" value={pass} onChange={e => setPass(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="パスワードを入力" required />
             </div>
           </div>
           <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 active:scale-[0.98] transition-all shadow-md disabled:opacity-70 flex justify-center items-center gap-2">
@@ -207,9 +215,8 @@ const LoginView = ({ onLogin }) => {
   );
 };
 
-// 共通の結果リスト表示コンポーネント（タブ機能付き）
 const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload = true }) => {
-  const [filter, setFilter] = useState('all'); // all, critical, high, medium, low
+  const [filter, setFilter] = useState('all'); 
 
   const filteredItems = useMemo(() => {
     if (filter === 'all') return items;
@@ -252,7 +259,6 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
 
   return (
     <div className="h-full flex flex-col animate-in fade-in">
-      {/* Header Area */}
       <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           {onBack && (
@@ -272,7 +278,6 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
         )}
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
         <button onClick={() => setFilter('all')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${filter === 'all' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border hover:bg-slate-50'}`}>
           すべて ({counts.all})
@@ -288,7 +293,6 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
         </button>
       </div>
 
-      {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col">
         <div className="flex-1 overflow-y-auto">
            <table className="w-full text-sm text-left">
@@ -373,7 +377,6 @@ const DashboardView = ({ sessions, onNavigate }) => {
         });
       }
     });
-    // Sort lists by date desc
     const sortFn = (a, b) => (b.sessionDate?.seconds || 0) - (a.sessionDate?.seconds || 0);
     Object.values(lists).forEach(l => l.sort(sortFn));
 
@@ -432,6 +435,7 @@ const DashboardView = ({ sessions, onNavigate }) => {
                     <span className="flex items-center gap-1"><User className="w-3 h-3"/> {session.user}</span>
                     <span>•</span>
                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {session.createdAt ? new Date(session.createdAt.seconds * 1000).toLocaleString() : '-'}</span>
+                    <SessionStatusBadge status={session.status} />
                   </div>
                 </div>
               </div>
@@ -449,7 +453,7 @@ const DashboardView = ({ sessions, onNavigate }) => {
   );
 };
 
-const HistoryView = ({ sessions }) => {
+const HistoryView = ({ sessions, onResume }) => {
   const [selectedSession, setSelectedSession] = useState(null);
   
   const groupedSessions = useMemo(() => {
@@ -475,12 +479,22 @@ const HistoryView = ({ sessions }) => {
 
   if (selectedSession) {
     return (
-       <ResultTableWithTabs 
-         title={`${selectedSession.target} の検査結果`}
-         items={selectedSession.details?.map(item => ({...item, sessionUser: selectedSession.user, sessionDate: selectedSession.createdAt, source: selectedSession.target})) || []}
-         onBack={() => setSelectedSession(null)}
-         currentUser={{name: selectedSession.user}}
-       />
+       <div className="h-full flex flex-col">
+         <div className="flex justify-between items-center mb-2">
+            <button onClick={() => setSelectedSession(null)} className="text-sm text-slate-500 hover:text-blue-600 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> フォルダに戻る</button>
+            {(selectedSession.status === 'aborted' || selectedSession.status === 'paused') && (
+              <button onClick={() => onResume(selectedSession)} className="bg-amber-500 text-white px-4 py-2 rounded shadow-sm hover:bg-amber-600 text-sm font-bold flex items-center gap-2 animate-pulse">
+                <PlayCircle className="w-4 h-4"/> 続きから再開 ({selectedSession.lastPage}ページ目〜)
+              </button>
+            )}
+         </div>
+         <ResultTableWithTabs 
+           title={`${selectedSession.target} の履歴`}
+           items={selectedSession.details?.map(item => ({...item, sessionUser: selectedSession.user, sessionDate: selectedSession.createdAt, source: selectedSession.target})) || []}
+           onBack={null}
+           currentUser={{name: selectedSession.user}}
+         />
+       </div>
     );
   }
 
@@ -515,10 +529,14 @@ const HistoryView = ({ sessions }) => {
                                    {session.type==='url' ? <ShoppingBag className="w-4 h-4"/> : <FileText className="w-4 h-4"/>}
                                 </div>
                                 <div className="min-w-0">
-                                   <p className="text-sm font-bold text-slate-700 truncate w-48 md:w-64">{session.target}</p>
-                                   <p className="text-xs text-slate-500 flex items-center gap-2">
+                                   <div className="flex items-center gap-2">
+                                     <p className="text-sm font-bold text-slate-700 truncate w-48 md:w-64">{session.target}</p>
+                                     <SessionStatusBadge status={session.status} />
+                                   </div>
+                                   <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
                                      <User className="w-3 h-3"/> {session.user}
                                      <span>{new Date(session.createdAt.seconds*1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                     {session.shopName && <span className="bg-slate-100 px-1 rounded text-[10px]">{session.shopName}</span>}
                                    </p>
                                 </div>
                              </div>
@@ -564,16 +582,24 @@ const saveSessionToFirestore = async (db, currentUser, type, target, allResults)
     }
 };
 
-const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef, isHighSpeed, setIsHighSpeed }) => {
-  const { targetUrl, results, isProcessing, progress, status } = state;
-  // 2-step flow state
-  const [urlStep, setUrlStep] = useState('input'); // input -> confirm -> processing -> result
-  const [shopMeta, setShopMeta] = useState({ count: 0, shopCode: '' });
-  const [checkRange, setCheckRange] = useState(30); // Default 30 items
+const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef, isHighSpeed, setIsHighSpeed, historySessions, onResume }) => {
+  const { targetUrl, results, isProcessing, progress, status, maxPages } = state;
+  const [urlStep, setUrlStep] = useState('input'); 
+  const [shopMeta, setShopMeta] = useState({ count: 0, shopCode: '', shopName: '' });
+  const [checkRange, setCheckRange] = useState(30);
+  const [sessionId, setSessionId] = useState(null); // For resuming or new session
+  const [startPage, setStartPage] = useState(1);
+
+  // Check for previous history on URL change
+  const previousHistory = useMemo(() => {
+    if (!targetUrl) return null;
+    const sameUrl = historySessions.find(s => s.target === targetUrl && s.type === 'url');
+    return sameUrl;
+  }, [targetUrl, historySessions]);
 
   const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
 
-  // Step 1: Fetch Shop Info (Count)
+  // Step 1: Shop Info
   const fetchShopInfo = async () => {
     if (!config.rakutenAppId) return addToast('楽天アプリIDが設定されていません', 'error');
     if (!targetUrl) return addToast('URLを入力してください', 'error');
@@ -588,7 +614,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       const apiUrl = new URL('/api/rakuten', window.location.origin);
       apiUrl.searchParams.append('shopUrl', targetUrl);
       apiUrl.searchParams.append('appId', config.rakutenAppId);
-      apiUrl.searchParams.append('page', '1'); // Just get meta
+      apiUrl.searchParams.append('page', '1'); 
 
       const res = await fetch(apiUrl.toString());
       if (!res.ok) throw new Error(`取得エラー: ${res.status}`);
@@ -598,7 +624,10 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
         throw new Error("商品が見つかりませんでした");
       }
 
-      setShopMeta({ count: data.count || 0, shopCode: data.shopCode });
+      // Get shop name from first product
+      const sName = data.products?.[0]?.shopName || '';
+      setShopMeta({ count: data.count || 0, shopCode: data.shopCode, shopName: sName });
+      
       setUrlStep('confirm');
       updateState({ status: '' });
 
@@ -610,104 +639,168 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
     }
   };
 
-  // Step 2: Start Check loop
-  const startUrlCheck = async () => {
-    if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
-    
-    setUrlStep('processing');
-    updateState({ isProcessing: true, results: [], status: 'データ取得開始...', progress: 0 });
-    stopRef.current = false;
+  // Step 2: Start Logic (New or Resume)
+  const handleStart = async (resumeSession = null) => {
+      if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
+      
+      setUrlStep('processing');
+      updateState({ isProcessing: true, status: '準備中...', progress: 0 });
+      stopRef.current = false;
 
-    let allProducts = [];
-    let page = 1;
-    // Calculate needed pages based on user selection (30 items per page)
-    const neededPages = Math.ceil(checkRange / 30);
+      let currentSessionId = null;
+      let initialResults = [];
+      let pageStart = 1;
 
-    try {
-      while (page <= neededPages) {
-        if (stopRef.current) break;
-        updateState({ status: `データ取得中... (${page}/${neededPages}ページ目)` });
-        
-        const apiUrl = new URL('/api/rakuten', window.location.origin);
-        apiUrl.searchParams.append('shopUrl', targetUrl);
-        apiUrl.searchParams.append('appId', config.rakutenAppId);
-        apiUrl.searchParams.append('page', page.toString());
-
-        const res = await fetch(apiUrl.toString());
-        if (!res.ok) break;
-        const data = await res.json();
-        
-        if (!data.products || data.products.length === 0) break;
-
-        const newProducts = data.products.map(p => ({
-          productName: p.name,
-          sourceFile: targetUrl,
-          imageUrl: p.imageUrl,
-          itemUrl: p.url
-        }));
-        allProducts = [...allProducts, ...newProducts];
-        
-        // Limit total items to user selection
-        if (allProducts.length >= checkRange) {
-            allProducts = allProducts.slice(0, checkRange);
-            break;
-        }
-
-        await new Promise(r => setTimeout(r, 500)); 
-        page++;
+      // Resume setup
+      if (resumeSession) {
+          currentSessionId = resumeSession.id;
+          initialResults = resumeSession.details || [];
+          pageStart = (resumeSession.lastPage || 0) + 1;
+          // If resumed, set checkRange to max or remaining? Let's assume continue to max for simplicity
+          setCheckRange(3000); // Continue until end
+          addToast(`${pageStart}ページ目から再開します`, 'info');
+      } else {
+          // New Session
+          if (db) {
+              const docRef = await addDoc(collection(db, 'check_sessions'), {
+                  type: 'url',
+                  target: targetUrl,
+                  shopName: shopMeta.shopName,
+                  user: currentUser.name,
+                  createdAt: serverTimestamp(),
+                  status: 'processing',
+                  lastPage: 0,
+                  summary: { total: 0, high: 0, critical: 0 },
+                  details: []
+              });
+              currentSessionId = docRef.id;
+          }
+          initialResults = [];
+          pageStart = 1;
       }
 
-      if (allProducts.length > 0) {
-        updateState({ status: `AI分析開始... (全${allProducts.length}件)` });
-        let processedCount = 0;
-        let finalResults = [];
-        
-        const BATCH_SIZE = isHighSpeed ? 15 : 3;
-        const WAIT_TIME = isHighSpeed ? 0 : 1000;
-
-        for (let i = 0; i < allProducts.length; i += BATCH_SIZE) {
-          if (stopRef.current) break;
-          const batch = allProducts.slice(i, i + BATCH_SIZE);
-          
-          const promises = batch.map(item => 
-            analyzeItemRisk(item, config.apiKey).then(res => ({ ...item, ...res }))
-          );
-          
-          const batchResults = await Promise.all(promises);
-          finalResults = [...finalResults, ...batchResults.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))];
-
-          // Update UI incrementally
-          setState(prev => ({
-            ...prev,
-            results: [...prev.results, ...batchResults.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))],
-            progress: ((processedCount + batch.length) / allProducts.length) * 100
-          }));
-          
-          processedCount += batch.length;
-          if (WAIT_TIME > 0) await new Promise(r => setTimeout(r, WAIT_TIME)); 
-        }
-
-        if (db && finalResults.length > 0) {
-            await saveSessionToFirestore(db, currentUser, 'url', targetUrl, finalResults);
-        }
-
-        addToast('チェックが完了し、履歴に保存されました', 'success');
-        setUrlStep('result');
-      }
-    } catch (e) {
-      addToast(e.message, 'error');
-      updateState({ status: 'エラー停止' });
-    } finally {
-      updateState({ isProcessing: false });
-    }
+      setSessionId(currentSessionId);
+      updateState({ results: initialResults });
+      
+      await runUrlCheckLoop(pageStart, currentSessionId, initialResults);
   };
 
-  // Reset flow
+  const runUrlCheckLoop = async (startP, sessId, currentResults) => {
+      let allProducts = [];
+      let page = startP;
+      let totalResults = [...currentResults];
+      
+      // Calculate needed pages based on checkRange (approx)
+      // If resuming, checkRange might need adjustment, but simplistic approach: run until checkRange total
+      const neededPages = Math.ceil(checkRange / 30); 
+
+      try {
+          // Loop pages
+          while (page <= neededPages) {
+              if (stopRef.current) {
+                  await updateSessionStatus(sessId, 'paused', page - 1, totalResults);
+                  updateState({ status: '中断しました' });
+                  break;
+              }
+
+              updateState({ status: `データ取得中... (${page}ページ目)` });
+
+              const apiUrl = new URL('/api/rakuten', window.location.origin);
+              apiUrl.searchParams.append('shopUrl', targetUrl);
+              apiUrl.searchParams.append('appId', config.rakutenAppId);
+              apiUrl.searchParams.append('page', page.toString());
+
+              const res = await fetch(apiUrl.toString());
+              if (!res.ok) break;
+              const data = await res.json();
+              
+              if (!data.products || data.products.length === 0) break;
+              
+              // Process this page immediately
+              updateState({ status: `AI分析中... (${page}ページ目)` });
+              const pageProducts = data.products.map(p => ({ productName: p.name, sourceFile: targetUrl, imageUrl: p.imageUrl, itemUrl: p.url }));
+              
+              // Batch AI Analysis for this page
+              const BATCH_SIZE = isHighSpeed ? 15 : 3;
+              const WAIT_TIME = isHighSpeed ? 0 : 500;
+              let pageResults = [];
+
+              for (let i = 0; i < pageProducts.length; i += BATCH_SIZE) {
+                  if (stopRef.current) break;
+                  const batch = pageProducts.slice(i, i + BATCH_SIZE);
+                  const promises = batch.map(item => analyzeItemRisk(item, config.apiKey).then(res => ({ ...item, ...res })));
+                  const batchRes = await Promise.all(promises);
+                  pageResults = [...pageResults, ...batchRes.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))];
+                  await new Promise(r => setTimeout(r, WAIT_TIME));
+              }
+
+              totalResults = [...totalResults, ...pageResults];
+              
+              // Progressive Save to Firestore
+              await updateSessionStatus(sessId, 'processing', page, totalResults);
+              
+              // Update UI
+              updateState({ 
+                  results: totalResults,
+                  progress: (totalResults.length / checkRange) * 100
+              });
+
+              if (totalResults.length >= checkRange) break;
+              
+              await new Promise(r => setTimeout(r, 1000)); // Rakuten API Friendly interval
+              page++;
+          }
+
+          if (!stopRef.current) {
+              await updateSessionStatus(sessId, 'completed', page - 1, totalResults);
+              addToast('全チェック完了', 'success');
+              setUrlStep('result');
+          }
+
+      } catch (e) {
+          addToast(e.message, 'error');
+          await updateSessionStatus(sessId, 'aborted', page - 1, totalResults);
+      } finally {
+          updateState({ isProcessing: false });
+      }
+  };
+
+  const updateSessionStatus = async (sessId, status, lastPage, details) => {
+      if (!db || !sessId) return;
+      try {
+          const summary = {
+              total: details.length,
+              high: details.filter(r => r.risk === '高' || r.risk === 'High').length,
+              medium: details.filter(r => r.risk === '中' || r.risk === 'Medium').length,
+              critical: details.filter(r => r.isCritical).length
+          };
+          await updateDoc(doc(db, 'check_sessions', sessId), {
+              status,
+              lastPage,
+              summary,
+              details: details, // Saving full details (Careful with 1MB limit in production)
+              updatedAt: serverTimestamp()
+          });
+      } catch(e) { console.error("Update Error", e); }
+  };
+
   const handleReset = () => {
       setUrlStep('input');
       updateState({ results: [], progress: 0, status: '' });
-      setShopMeta({ count: 0, shopCode: '' });
+      setShopMeta({ count: 0, shopCode: '', shopName: '' });
   };
+
+  // Effect to trigger resume from History Tab
+  useEffect(() => {
+      if (state.resumeSession) {
+          setTargetUrl(state.resumeSession.target);
+          setShopMeta({ count: 0, shopCode: '', shopName: state.resumeSession.shopName || '' });
+          handleStart(state.resumeSession);
+          // Clear resume flag
+          setState(p => ({ ...p, resumeSession: null }));
+      }
+  }, [state.resumeSession]);
+
 
   // Render Input View
   if (urlStep === 'input') {
@@ -733,6 +826,15 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                    ショップ情報を確認
                 </button>
             </div>
+            {previousHistory && (
+                 <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center justify-center gap-2 text-yellow-800 text-sm">
+                    <Info className="w-4 h-4"/>
+                    <span>過去の履歴あり: {new Date(previousHistory.createdAt.seconds*1000).toLocaleDateString()} ({previousHistory.summary?.total}件)</span>
+                    {previousHistory.status !== 'completed' && (
+                         <button onClick={() => handleStart(previousHistory)} className="ml-2 underline font-bold hover:text-yellow-900">続きから再開する</button>
+                    )}
+                 </div>
+            )}
             {!config.rakutenAppId && <p className="text-red-500 font-bold mt-4">⚠ 設定画面で楽天アプリIDを入力してください</p>}
         </div>
       </div>
@@ -750,8 +852,9 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                   
                   <div className="bg-slate-50 p-6 rounded-xl mb-8 flex items-center justify-between">
                       <div>
-                          <p className="text-sm text-slate-500 font-bold">対象ショップURL</p>
-                          <p className="text-lg font-mono text-slate-800 truncate max-w-md">{targetUrl}</p>
+                          <p className="text-sm text-slate-500 font-bold">ショップ名</p>
+                          <p className="text-lg font-bold text-slate-800 mb-2">{shopMeta.shopName || '取得中...'}</p>
+                          <p className="text-xs text-slate-400 font-mono truncate max-w-xs">{targetUrl}</p>
                       </div>
                       <div className="text-right">
                           <p className="text-sm text-slate-500 font-bold">総出品数</p>
@@ -764,21 +867,21 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <button onClick={() => setCheckRange(30)} className={`p-4 border-2 rounded-xl text-left transition-all ${checkRange === 30 ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300'}`}>
                               <div className="font-bold text-lg text-slate-800">最新 30件</div>
-                              <div className="text-xs text-slate-500">まずはお試しチェック (約30秒)</div>
+                              <div className="text-xs text-slate-500">お試しチェック</div>
                           </button>
                           <button onClick={() => setCheckRange(150)} className={`p-4 border-2 rounded-xl text-left transition-all ${checkRange === 150 ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300'}`}>
                               <div className="font-bold text-lg text-slate-800">最新 150件</div>
-                              <div className="text-xs text-slate-500">直近の出品を重点的に (約3分)</div>
+                              <div className="text-xs text-slate-500">直近の商品</div>
                           </button>
                           <button onClick={() => setCheckRange(3000)} className={`p-4 border-2 rounded-xl text-left transition-all ${checkRange === 3000 ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300'}`}>
                               <div className="font-bold text-lg text-slate-800">全件 (Max 3000)</div>
-                              <div className="text-xs text-slate-500">時間はかかりますが徹底的に (10分~)</div>
+                              <div className="text-xs text-slate-500">徹底的にチェック</div>
                           </button>
                       </div>
                   </div>
 
                   <div className="mt-8 flex justify-center">
-                      <button onClick={startUrlCheck} className="w-full md:w-auto px-12 py-4 bg-blue-600 text-white font-bold text-lg rounded-xl hover:bg-blue-700 shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105">
+                      <button onClick={() => handleStart(null)} className="w-full md:w-auto px-12 py-4 bg-blue-600 text-white font-bold text-lg rounded-xl hover:bg-blue-700 shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105">
                           <Search className="w-6 h-6"/> チェックを開始する
                       </button>
                   </div>
@@ -787,7 +890,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       );
   }
 
-  // Render Processing View
   if (urlStep === 'processing') {
       return (
           <div className="space-y-6 animate-in fade-in w-full">
@@ -799,15 +901,15 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                  <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden mb-4">
                      <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }}></div>
                  </div>
-                 <p className="text-sm text-slate-400 font-mono">{Math.round(progress)}% 完了</p>
+                 <p className="text-sm text-slate-400 font-mono">{results.length} 件完了 / {Math.round(progress)}%</p>
+                 <p className="text-xs text-slate-400 mt-2">※自動保存されています。中断しても後で再開可能です。</p>
 
-                 <button onClick={() => stopRef.current = true} className="mt-8 text-slate-400 hover:text-red-500 text-sm underline">中断する</button>
+                 <button onClick={() => stopRef.current = true} className="mt-8 text-slate-400 hover:text-red-500 text-sm underline">中断して保存</button>
              </div>
           </div>
       );
   }
 
-  // Render Result View (New Tabbed Interface)
   if (urlStep === 'result') {
       return <ResultTableWithTabs 
                 items={results} 
@@ -1043,7 +1145,6 @@ export default function App() {
       setDb(firestore);
       setDbStatus('接続OK');
       
-      // Fetch Sessions instead of items
       const q = query(collection(firestore, 'check_sessions'), orderBy('createdAt', 'desc'), limit(500));
       onSnapshot(q, (snap) => setHistorySessions(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
         err => console.warn("History sync warning:", err));
@@ -1093,6 +1194,11 @@ export default function App() {
     setCurrentUser(null);
     setActiveTab('dashboard');
     addToast('ログアウトしました', 'info');
+  };
+
+  const handleResumeSession = (session) => {
+     setUrlSearchState(prev => ({ ...prev, resumeSession: session }));
+     setActiveTab('url');
   };
 
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
@@ -1146,9 +1252,9 @@ export default function App() {
 
         <main className="flex-1 overflow-y-auto p-6 w-full">
           {activeTab === 'dashboard' && <DashboardView sessions={historySessions} onNavigate={setActiveTab} />}
-          {activeTab === 'url' && <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={urlSearchState} setState={setUrlSearchState} stopRef={urlSearchStopRef} isHighSpeed={isHighSpeed} setIsHighSpeed={setIsHighSpeed} />}
+          {activeTab === 'url' && <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={urlSearchState} setState={setUrlSearchState} stopRef={urlSearchStopRef} isHighSpeed={isHighSpeed} setIsHighSpeed={setIsHighSpeed} historySessions={historySessions} onResume={handleResumeSession} />}
           {activeTab === 'checker' && <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={csvSearchState} setState={setCsvSearchState} stopRef={csvSearchStopRef} isHighSpeed={isHighSpeed} setIsHighSpeed={setIsHighSpeed} />}
-          {activeTab === 'history' && <HistoryView sessions={historySessions} />}
+          {activeTab === 'history' && <HistoryView sessions={historySessions} onResume={(session) => { setActiveTab('url'); setUrlSearchState(p => ({...p, resumeSession: session})); }} />}
           {activeTab === 'users' && <UserManagementView db={db} userList={userList} addToast={addToast} />}
           {activeTab === 'settings' && <SettingsView config={config} setConfig={setConfig} addToast={addToast} initFirebase={initFirebase} />}
         </main>
