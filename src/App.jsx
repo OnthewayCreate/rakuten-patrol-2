@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
 const FIXED_PASSWORD = 'admin123'; 
 
+// ユーティリティ: CSVパース
 const parseCSV = (text) => {
   const rows = [];
   let currentRow = [];
@@ -38,56 +39,54 @@ const readFileAsText = (file, encoding) => {
   });
 };
 
-// ★ここを更新: 画像も送れる新しいAPI経由でチェックする
+// API呼び出しラッパー
 async function checkIPRisk(itemData, apiKey, retryCount = 0) {
-  // itemData: { productName, imageUrl, ... }
-  
   try {
-    // サーバーサイドAPI (api/analyze.js) を呼び出す
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         productName: itemData.productName,
-        imageUrl: itemData.imageUrl, // 画像URLも送信
+        imageUrl: itemData.imageUrl, 
         apiKey: apiKey
       })
     });
 
-    if (response.status === 429 || response.status === 504) { // タイムアウトやレート制限
-      if (retryCount < 3) {
-        const waitTime = Math.pow(2, retryCount + 1) * 1000;
+    if (response.status === 429 || response.status === 504) {
+      if (retryCount < 5) { // リトライ回数を強化
+        const waitTime = Math.pow(2, retryCount + 1) * 1000 + (Math.random() * 1000);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         return checkIPRisk(itemData, apiKey, retryCount + 1);
       } else {
-        throw new Error("Server Busy / Timeout");
+        throw new Error("混雑中 (Rate Limit)");
       }
     }
 
     if (!response.ok) {
         const errText = await response.text();
-        throw new Error(`API Error: ${response.status} ${errText}`);
+        throw new Error(`通信エラー: ${response.status}`);
     }
 
-    const result = await response.json();
-    return result;
+    return await response.json();
 
   } catch (error) {
-    // エラー時はローカルで簡易テキストチェックに切り替える等のフォールバックも考えられますが、
-    // ここではエラーとして返します
-    return { risk_level: "Error", reason: error.message };
+    return { risk_level: "エラー", reason: error.message };
   }
 }
 
 export default function App() {
+  // 認証・ユーザー情報
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [inputPassword, setInputPassword] = useState('');
+  const [userName, setUserName] = useState(''); // 担当者名
   
+  // 設定
   const [apiKey, setApiKey] = useState('');
   const [rakutenAppId, setRakutenAppId] = useState('');
   const [firebaseConfigJson, setFirebaseConfigJson] = useState('');
   const [db, setDb] = useState(null);
   
+  // アプリ状態
   const [activeTab, setActiveTab] = useState('url');
   const [files, setFiles] = useState([]);
   const [csvData, setCsvData] = useState([]);
@@ -106,12 +105,16 @@ export default function App() {
 
   const stopRef = useRef(false);
 
+  // 初期化
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
     const savedRakutenId = localStorage.getItem('rakuten_app_id');
     const savedFbConfig = localStorage.getItem('firebase_config');
+    const savedUser = localStorage.getItem('app_user_name');
+    
     if (savedKey) setApiKey(savedKey);
     if (savedRakutenId) setRakutenAppId(savedRakutenId);
+    if (savedUser) setUserName(savedUser);
     if (savedFbConfig) {
       setFirebaseConfigJson(savedFbConfig);
       initFirebase(savedFbConfig);
@@ -124,7 +127,8 @@ export default function App() {
       const app = initializeApp(config);
       const firestore = getFirestore(app);
       setDb(firestore);
-      const q = query(collection(firestore, 'ip_checks'), orderBy('createdAt', 'desc'), limit(50));
+      // 履歴をリアルタイム取得
+      const q = query(collection(firestore, 'ip_checks'), orderBy('createdAt', 'desc'), limit(100));
       onSnapshot(q, (snapshot) => {
         const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setHistoryData(docs);
@@ -136,8 +140,16 @@ export default function App() {
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (inputPassword === FIXED_PASSWORD) setIsAuthenticated(true);
-    else alert("パスワードが違います");
+    if (inputPassword === FIXED_PASSWORD) {
+      if (!userName.trim()) {
+        alert("担当者名を入力してください（履歴に残ります）");
+        return;
+      }
+      localStorage.setItem('app_user_name', userName);
+      setIsAuthenticated(true);
+    } else {
+      alert("パスワードが違います");
+    }
   };
 
   const saveSettings = () => {
@@ -151,12 +163,16 @@ export default function App() {
   const saveToHistory = async (item) => {
     if (!db) return;
     try {
-      if (item.risk === 'High' || item.risk === 'Medium') {
+      // 「高」「中」または「危険フラグ」があるものを保存
+      if (item.risk === '高' || item.risk === '中' || item.isCritical) {
         await addDoc(collection(db, 'ip_checks'), {
           productName: item.productName,
           risk: item.risk,
           reason: item.reason,
           sourceFile: item.sourceFile,
+          imageUrl: item.imageUrl || '',
+          isCritical: item.is_critical || false,
+          pic: userName, // 担当者
           createdAt: serverTimestamp()
         });
       }
@@ -192,12 +208,13 @@ export default function App() {
     setCsvData(combinedData);
   };
 
+  // --- 楽天API検索 (ページネーション対応) ---
   const handleRakutenSearch = async () => {
     if (!targetUrl) return alert("ショップURLを入力してください");
     if (!rakutenAppId) return alert("設定画面で「楽天アプリID」を入力してください");
     
     if (window.location.hostname.includes('stackblitz') || window.location.hostname.includes('webcontainer')) {
-      alert("【注意】この機能はStackBlitzプレビューでは動作しません。Vercelデプロイ後に実行してください。");
+      alert("【注意】StackBlitzプレビューでは動作しません。Vercel環境で実行してください。");
       return;
     }
 
@@ -213,11 +230,11 @@ export default function App() {
     try {
       while (currentPage <= maxPages && currentPage <= totalPages) {
         if (stopRef.current) {
-          setUrlStatus('取得を中断しました');
+          setUrlStatus('中断しました');
           break;
         }
 
-        setUrlStatus(`楽天からデータ取得中... (${currentPage}ページ目 / ${allProducts.length}件)`);
+        setUrlStatus(`データ取得中... (${currentPage}ページ目 / ${allProducts.length}件取得済)`);
         
         const apiUrl = new URL('/api/rakuten', window.location.origin);
         apiUrl.searchParams.append('shopUrl', targetUrl);
@@ -227,17 +244,13 @@ export default function App() {
         const res = await fetch(apiUrl.toString());
         
         if (!res.ok) {
-          const errorData = await res.json().catch(async () => {
-             const text = await res.text();
-             return { error: `API Error (${res.status})`, details: text };
-          });
-          setUrlStatus(`エラー: ${errorData.error || "API呼び出しに失敗しました"}`);
+          setUrlStatus(`取得エラー: ${res.status}`);
           break;
         }
         
         const data = await res.json();
         if (!data.products || data.products.length === 0) {
-          if (currentPage === 1) setUrlStatus('商品が見つかりませんでした。');
+          if (currentPage === 1) setUrlStatus('商品が見つかりませんでした');
           break; 
         }
 
@@ -251,12 +264,14 @@ export default function App() {
         }));
 
         allProducts = [...allProducts, ...pageProducts];
+        
+        // 楽天API制限考慮 (1秒待機)
         await new Promise(resolve => setTimeout(resolve, 1000));
         currentPage++;
       }
 
       if (allProducts.length > 0) {
-        setUrlStatus(`${allProducts.length}件の商品を取得しました。AIチェックを開始します...`);
+        setUrlStatus(`${allProducts.length}件の商品をチェック中...`);
         await startCheckProcess(allProducts, true);
         setUrlStatus('完了');
       }
@@ -268,14 +283,16 @@ export default function App() {
     }
   };
 
+  // --- 共通チェックプロセス (高速化・並列処理) ---
   const startCheckProcess = async (dataList, isApiMode = false) => {
-    if (!apiKey) return alert("設定画面でGemini APIキーを入力してください");
+    if (!apiKey) return alert("設定画面でAPIキーを入力してください");
     setIsProcessing(true);
     stopRef.current = false;
     let currentIndex = 0;
     const total = dataList.length;
-    // 画像処理は重いので、並列数を控えめにする
-    const BATCH_SIZE = isHighSpeed ? 3 : 1; 
+    
+    // 高速モード: 5並列 / 通常: 1並列 (画像解析は重いため控えめに)
+    const BATCH_SIZE = isHighSpeed ? 5 : 1; 
     
     while (currentIndex < total) {
       if (stopRef.current) break;
@@ -294,15 +311,15 @@ export default function App() {
         }
 
         if (!itemData.productName) {
-          promises.push(Promise.resolve({ ...itemData, id: i, risk: "Low", reason: "なし" }));
+          promises.push(Promise.resolve({ ...itemData, id: i, risk: "低", reason: "-" }));
           continue;
         }
 
-        // API経由でチェック
         promises.push(checkIPRisk(itemData, apiKey).then(res => ({
           ...itemData,
           id: i, 
           risk: res.risk_level, 
+          isCritical: res.is_critical, // 危険フラグ
           reason: res.reason
         })));
       }
@@ -313,54 +330,77 @@ export default function App() {
       
       setProgress(Math.round((batchEnd / total) * 100));
       currentIndex = batchEnd;
-      const waitTime = isHighSpeed ? 500 : 2000;
+      
+      // 待機時間調整 (高速モードなら短縮)
+      const waitTime = isHighSpeed ? 200 : 2000;
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     setIsProcessing(false);
   };
 
-  const startCsvProcessing = () => {
-    startCheckProcess(csvData, false);
-  };
+  const startCsvProcessing = () => startCheckProcess(csvData, false);
 
   const downloadCSV = (dataToDownload) => {
     const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-    let csvContent = "商品名,リスク,理由,ソース,商品URL,画像URL,日時\n";
+    let csvContent = "商品名,リスク,危険度,理由,担当者,ソース,商品URL,日時\n";
     dataToDownload.forEach(r => {
       const name = `"${(r.productName || '').replace(/"/g, '""')}"`;
       const reason = `"${(r.reason || '').replace(/"/g, '""')}"`;
       const file = `"${(r.sourceFile || '').replace(/"/g, '""')}"`;
       const itemUrl = `"${(r.itemUrl || '').replace(/"/g, '""')}"`;
-      const imgUrl = `"${(r.imageUrl || '').replace(/"/g, '""')}"`;
-      const date = r.createdAt ? new Date(r.createdAt.seconds * 1000).toLocaleString() : '';
-      csvContent += `${name},${r.risk},${reason},${file},${itemUrl},${imgUrl},${date}\n`;
+      const date = r.createdAt ? new Date(r.createdAt.seconds * 1000).toLocaleString() : new Date().toLocaleString();
+      const critical = r.isCritical ? "★危険★" : "";
+      csvContent += `${name},${r.risk},${critical},${reason},${userName},${file},${itemUrl},${date}\n`;
     });
     const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", "ip_check_result.csv");
+    link.setAttribute("download", "ip_check_report.csv");
     document.body.appendChild(link);
     link.click(); document.body.removeChild(link);
   };
 
-  const getRiskBadge = (risk) => {
-    const colors = { 'High': 'bg-red-100 text-red-800 border-red-200', 'Medium': 'bg-yellow-100 text-yellow-800 border-yellow-200', 'Low': 'bg-green-100 text-green-800 border-green-200' };
-    return <span className={`px-2 py-1 rounded-full text-xs font-bold border ${colors[risk] || 'bg-gray-100'}`}>{risk}</span>;
+  // バッジ表示ロジック
+  const getRiskBadge = (item) => {
+    const risk = item.risk;
+    const isCritical = item.isCritical;
+
+    if (isCritical) {
+        return <span className="px-3 py-1 rounded-full text-sm font-bold bg-purple-600 text-white flex items-center justify-center gap-1 shadow-sm animate-pulse"><Siren className="w-4 h-4"/> 危険信号</span>;
+    }
+    if (risk === '高' || risk === 'High') return <span className="px-3 py-1 rounded-full text-sm font-bold bg-red-100 text-red-700 border border-red-200">高 (危険)</span>;
+    if (risk === '中' || risk === 'Medium') return <span className="px-3 py-1 rounded-full text-sm font-bold bg-yellow-100 text-yellow-700 border border-yellow-200">中 (要確認)</span>;
+    return <span className="px-3 py-1 rounded-full text-sm font-bold bg-green-100 text-green-700 border border-green-200">問題なし</span>;
   };
 
+  // --- ログイン画面 ---
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
-          <div className="flex justify-center mb-4"><Lock className="w-12 h-12 text-blue-600" /></div>
-          <h1 className="text-2xl font-bold text-center text-slate-800 mb-6">楽天パトロール</h1>
+        <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full space-y-6">
+          <div className="text-center">
+            <div className="inline-flex p-3 bg-blue-100 rounded-full mb-4"><ShieldAlert className="w-8 h-8 text-blue-600" /></div>
+            <h1 className="text-2xl font-bold text-slate-800">楽天パトロール</h1>
+            <p className="text-sm text-slate-500 mt-2">弁理士AIによる権利侵害チェック</p>
+          </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">パスワード</label>
-              <input type="password" value={inputPassword} onChange={(e) => setInputPassword(e.target.value)} className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="パスワードを入力" />
+              <label className="block text-sm font-bold text-slate-700 mb-1">担当者名 <span className="text-red-500">*</span></label>
+              <div className="relative">
+                <User className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
+                <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="山田 太郎" required />
+              </div>
+              <p className="text-xs text-slate-500 mt-1">※作業履歴に記録されます</p>
             </div>
-            <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700">ログイン</button>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">パスワード</label>
+              <div className="relative">
+                <Lock className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
+                <input type="password" value={inputPassword} onChange={(e) => setInputPassword(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="パスワード" />
+              </div>
+            </div>
+            <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-md">ログインして開始</button>
           </form>
         </div>
       </div>
@@ -369,120 +409,104 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col">
-      {/* ナビゲーションバー */}
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
-        <div className="w-full px-4 md:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2 font-bold text-slate-800">
+        <div className="w-full px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2 font-bold text-slate-800 text-lg">
             <ShieldAlert className="w-6 h-6 text-blue-600" />
-            <span className="hidden md:inline">Rakuten Patrol</span>
-            <span className="md:hidden">RP</span>
+            <span>Rakuten Patrol</span>
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto">
-            <button onClick={() => setActiveTab('url')} className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap flex items-center gap-1 ${activeTab === 'url' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}><ShoppingBag className="w-4 h-4"/> <span className="hidden sm:inline">楽天URL</span></button>
-            <button onClick={() => setActiveTab('checker')} className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap flex items-center gap-1 ${activeTab === 'checker' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}><FileText className="w-4 h-4"/> <span className="hidden sm:inline">CSV</span></button>
-            <button onClick={() => setActiveTab('history')} className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap flex items-center gap-1 ${activeTab === 'history' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}><History className="w-4 h-4"/> <span className="hidden sm:inline">履歴</span></button>
-            <button onClick={() => setActiveTab('settings')} className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap flex items-center gap-1 ${activeTab === 'settings' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}><Settings className="w-4 h-4"/> <span className="hidden sm:inline">設定</span></button>
-            <button onClick={() => setIsAuthenticated(false)} className="ml-2 p-2 text-slate-400 hover:text-red-500"><LogOut className="w-5 h-5" /></button>
+          <div className="flex items-center gap-1">
+            {['url', 'checker', 'history', 'settings'].map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}>
+                {tab === 'url' && '楽天URL検索'}
+                {tab === 'checker' && 'CSV検索'}
+                {tab === 'history' && '履歴'}
+                {tab === 'settings' && '設定'}
+              </button>
+            ))}
+            <div className="w-px h-6 bg-slate-300 mx-2"></div>
+            <span className="text-xs text-slate-500 mr-2 font-medium"><User className="w-3 h-3 inline mr-1"/>{userName}</span>
+            <button onClick={() => setIsAuthenticated(false)} className="p-2 text-slate-400 hover:text-red-500 rounded-full hover:bg-red-50"><LogOut className="w-5 h-5" /></button>
           </div>
         </div>
       </nav>
 
-      {/* メインコンテンツエリア */}
-      <main className="flex-1 w-full px-4 py-6 md:px-8">
-        
-        {/* --- URL検索画面 --- */}
+      <main className="flex-1 w-full px-6 py-6">
+        {/* --- URL検索 --- */}
         {activeTab === 'url' && (
-          <div className="space-y-6 animate-in fade-in w-full">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4 w-full">
+          <div className="space-y-6 w-full animate-in fade-in">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><ShoppingBag className="w-5 h-5 text-blue-600" /> 楽天ショップの商品を取得</h2>
-                {!rakutenAppId && <span className="text-xs text-red-500 font-bold bg-red-50 px-2 py-1 rounded">※設定で楽天アプリIDを入力してください</span>}
+                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><ShoppingBag className="w-6 h-6 text-blue-600" /> 楽天ショップの商品を自動取得</h2>
+                {!rakutenAppId && <span className="text-xs font-bold text-red-600 bg-red-50 px-3 py-1 rounded-full animate-bounce">⚠ 設定で楽天アプリIDを入力してください</span>}
               </div>
-              <div className="flex flex-col gap-4 md:flex-row">
-                <div className="flex-1 space-y-2">
-                  <input 
-                    type="text" 
-                    value={targetUrl} 
-                    onChange={(e) => setTargetUrl(e.target.value)} 
-                    placeholder="楽天のショップURL (例: https://www.rakuten.co.jp/edion/ )" 
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <span>最大取得ページ数:</span>
-                    <select value={maxPages} onChange={(e) => setMaxPages(Number(e.target.value))} className="border rounded px-2 py-1 bg-white">
-                      <option value="1">1ページ (30件)</option>
-                      <option value="5">5ページ (150件)</option>
-                      <option value="10">10ページ (300件)</option>
-                      <option value="34">34ページ (約1000件)</option>
-                      <option value="100">100ページ (約3000件)</option>
-                    </select>
-                  </div>
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1 space-y-1">
+                  <label className="text-xs font-bold text-slate-500">ショップURL</label>
+                  <input type="text" value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} placeholder="https://www.rakuten.co.jp/shop-name/" className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-lg" />
                 </div>
-                <div>
+                <div className="w-48 space-y-1">
+                  <label className="text-xs font-bold text-slate-500">取得ページ数</label>
+                  <select value={maxPages} onChange={(e) => setMaxPages(Number(e.target.value))} className="w-full px-3 py-3 border rounded-lg bg-white font-medium">
+                    <option value="1">1ページ (30件)</option>
+                    <option value="5">5ページ (150件)</option>
+                    <option value="10">10ページ (300件)</option>
+                    <option value="34">全件 (最大1000件)</option>
+                  </select>
+                </div>
+                <div className="flex items-end">
                   {!isProcessing ? (
-                    <button onClick={handleRakutenSearch} disabled={!rakutenAppId} className="h-full px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold rounded-lg shadow-sm whitespace-nowrap flex items-center gap-2">
-                      <Search className="w-4 h-4" /> 取得＆チェック開始
+                    <button onClick={handleRakutenSearch} disabled={!rakutenAppId} className="h-12 px-8 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold rounded-lg shadow-sm flex items-center gap-2 transition-all">
+                      <Search className="w-5 h-5" /> 取得＆チェック開始
                     </button>
                   ) : (
-                    <button onClick={() => {stopRef.current = true;}} className="h-full px-6 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow-sm whitespace-nowrap flex items-center gap-2">
-                      <Pause className="w-4 h-4" /> 中断する
+                    <button onClick={() => {stopRef.current = true;}} className="h-12 px-8 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow-sm flex items-center gap-2 transition-all">
+                      <Pause className="w-5 h-5" /> 中断する
                     </button>
                   )}
                 </div>
               </div>
-              
-              {urlStatus && (
-                <div className="flex items-center gap-2 text-sm text-slate-600 bg-slate-100 p-3 rounded animate-pulse">
-                  <RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
-                  {urlStatus}
-                </div>
-              )}
-              
-              {isProcessing && (
-                <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden mt-2">
-                   <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${progress}%` }} />
-                </div>
-              )}
+              {urlStatus && <div className="bg-slate-50 p-3 rounded text-slate-600 font-mono text-sm flex items-center gap-2"><RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} /> {urlStatus}</div>}
+              {isProcessing && <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }}></div></div>}
             </div>
 
             {results.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
-                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                  <h2 className="font-bold text-slate-700 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> 判定結果 ({results.length}件)</h2>
-                  <button onClick={() => downloadCSV(results)} className="text-sm text-blue-600 flex items-center gap-1 hover:bg-blue-50 px-3 py-1 rounded transition-colors"><Download className="w-4 h-4" /> CSV保存</button>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                  <h2 className="font-bold text-slate-700 flex items-center gap-2"><CheckCircle className="w-5 h-5 text-green-600" /> 判定結果 ({results.length}件)</h2>
+                  <button onClick={() => downloadCSV(results)} className="px-4 py-2 text-sm font-bold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-2"><Download className="w-4 h-4" /> CSVダウンロード</button>
                 </div>
-                <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
+                <div className="overflow-x-auto max-h-[75vh]">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm text-sm font-bold text-slate-600">
                       <tr>
-                        <th className="px-4 py-3 w-24 text-center bg-slate-50">リスク</th>
-                        <th className="px-4 py-3 w-24 text-center bg-slate-50">画像</th>
-                        <th className="px-4 py-3 bg-slate-50 min-w-[300px]">商品名</th>
-                        <th className="px-4 py-3 w-1/3 min-w-[250px] bg-slate-50">弁理士AIの指摘</th>
+                        <th className="p-4 text-center w-32">判定</th>
+                        <th className="p-4 text-center w-24">画像</th>
+                        <th className="p-4 min-w-[300px]">商品名 / URL</th>
+                        <th className="p-4 w-1/3 min-w-[300px]">弁理士AIの指摘</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-100 text-sm">
                       {results.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3 text-center align-middle">
-                            {getRiskBadge(item.risk)}
-                          </td>
-                          <td className="px-4 py-3 text-center align-middle">
+                        <tr key={idx} className={`hover:bg-slate-50 transition-colors ${item.isCritical ? 'bg-red-50' : ''}`}>
+                          <td className="p-4 text-center align-top">{getRiskBadge(item)}</td>
+                          <td className="p-4 align-top">
                             {item.imageUrl ? (
-                              <a href={item.itemUrl} target="_blank" rel="noreferrer" className="block w-16 h-16 mx-auto">
-                                <img src={item.imageUrl} alt="商品" className="w-full h-full object-contain rounded border border-slate-200 hover:opacity-80 bg-white" />
+                              <a href={item.itemUrl} target="_blank" rel="noreferrer" className="block w-20 h-20 mx-auto bg-white rounded border border-slate-200 overflow-hidden hover:scale-105 transition-transform">
+                                <img src={item.imageUrl} alt="" className="w-full h-full object-contain" />
                               </a>
-                            ) : <div className="w-16 h-16 mx-auto bg-slate-100 rounded flex items-center justify-center text-xs text-slate-400">No Img</div>}
+                            ) : <div className="w-20 h-20 bg-slate-100 rounded mx-auto flex items-center justify-center text-xs text-slate-400">No Img</div>}
                           </td>
-                          <td className="px-4 py-3 align-middle">
-                            <a href={item.itemUrl || '#'} target="_blank" rel="noreferrer" className="font-medium text-blue-600 hover:underline block" title={item.productName}>
-                              {item.productName}
-                            </a>
-                            <div className="flex items-center gap-1 mt-1 text-xs text-slate-400">
-                                <ExternalLink className="w-3 h-3"/> 商品ページへ
-                            </div>
+                          <td className="p-4 align-top">
+                            <div className="font-bold text-slate-700 mb-1">{item.productName}</div>
+                            {item.itemUrl && (
+                              <a href={item.itemUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline flex items-center gap-1">
+                                <ExternalLink className="w-3 h-3" /> 商品ページを開く
+                              </a>
+                            )}
                           </td>
-                          <td className="px-4 py-3 text-slate-600 align-middle text-sm">
+                          <td className="p-4 align-top text-slate-700 leading-relaxed">
+                            {item.isCritical && <div className="text-xs font-bold text-red-600 mb-1 flex items-center gap-1"><Siren className="w-3 h-3"/> 警察沙汰・逮捕リスクあり</div>}
                             {item.reason}
                           </td>
                         </tr>
@@ -495,165 +519,117 @@ export default function App() {
           </div>
         )}
 
-        {/* --- その他のタブ (省略せず実装) --- */}
-        {/* ... CSV, History, Settings タブも同様に max-w-5xl 等を削除 ... */}
+        {/* --- 履歴画面 --- */}
+        {activeTab === 'history' && (
+          <div className="space-y-6 animate-in fade-in w-full">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><History className="w-6 h-6 text-blue-600" /> チェック履歴 (最新100件)</h2>
+                {!db && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded">Firebase未接続</span>}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 text-slate-600 font-bold">
+                    <tr>
+                      <th className="p-4 w-40">日時</th>
+                      <th className="p-4 w-32">担当者</th>
+                      <th className="p-4 w-32 text-center">判定</th>
+                      <th className="p-4">商品名</th>
+                      <th className="p-4 w-1/3">理由</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {historyData.map((item) => (
+                      <tr key={item.id} className={`hover:bg-slate-50 ${item.isCritical ? 'bg-red-50' : ''}`}>
+                        <td className="p-4 text-slate-500 text-xs whitespace-nowrap">
+                          {item.createdAt ? new Date(item.createdAt.seconds * 1000).toLocaleString() : '-'}
+                        </td>
+                        <td className="p-4 font-medium text-slate-700 flex items-center gap-1">
+                          <User className="w-3 h-3 text-slate-400"/> {item.pic || '不明'}
+                        </td>
+                        <td className="p-4 text-center">{getRiskBadge(item)}</td>
+                        <td className="p-4 font-medium text-slate-700 line-clamp-2" title={item.productName}>{item.productName}</td>
+                        <td className="p-4 text-slate-600 text-xs">{item.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- CSV & 設定タブ (省略なしで実装) --- */}
         {activeTab === 'checker' && (
           <div className="space-y-6 animate-in fade-in w-full">
-             {/* コンテンツ (省略なし) */}
-             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4 w-full">
-                {/* ... ファイルアップロード部分 ... */}
+             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
                 <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1">
-                   {files.length === 0 ? (
-                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:bg-slate-50 relative cursor-pointer transition-colors">
-                      <input type="file" accept=".csv" multiple onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                      <FolderOpen className="w-10 h-10 text-slate-400 mx-auto mb-3" />
-                      <p className="text-slate-700 font-medium">CSVファイルをドラッグ＆ドロップ</p>
-                      <p className="text-xs text-slate-400 mt-1">またはクリックして選択</p>
-                    </div>
-                  ) : (
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
-                      <div>
-                        <span className="font-bold text-blue-900 block flex items-center gap-2"><FileText className="w-4 h-4"/> 読み込み済み: {files.length}ファイル</span>
-                        <span className="text-xs text-blue-600 ml-6">合計 {csvData.length} 件のデータ</span>
-                      </div>
-                      <button onClick={() => {setFiles([]); setCsvData([]); setResults([]);}} className="text-blue-400 hover:text-blue-600 p-2 rounded hover:bg-blue-100"><Trash2 className="w-5 h-5" /></button>
-                    </div>
-                  )}
-                </div>
-                <div className="w-full md:w-64 space-y-3">
-                  <select value={encoding} onChange={(e) => setEncoding(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm bg-white">
-                    <option value="Shift_JIS">Shift_JIS (楽天)</option>
-                    <option value="UTF-8">UTF-8 (一般)</option>
-                  </select>
-                  <select value={targetColIndex} onChange={(e) => setTargetColIndex(Number(e.target.value))} className="w-full px-3 py-2 border rounded-lg text-sm bg-white" disabled={headers.length === 0}>
-                    {headers.length === 0 && <option>カラム未選択</option>}
-                    {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
-                  </select>
-                  <div className="flex items-center gap-2 p-2 bg-slate-100 rounded-lg cursor-pointer hover:bg-slate-200 transition-colors" onClick={() => setIsHighSpeed(!isHighSpeed)}>
-                    <Zap className={`w-4 h-4 ${isHighSpeed ? 'text-indigo-600' : 'text-slate-400'}`} />
-                    <span className="text-xs font-bold text-slate-600">高速モード</span>
-                    <div className={`ml-auto w-8 h-4 rounded-full relative transition-colors ${isHighSpeed ? 'bg-indigo-600' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${isHighSpeed ? 'left-4.5' : 'left-0.5'}`} />
+                  <div className="flex-1 border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:bg-slate-50 relative">
+                    <input type="file" accept=".csv" multiple onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                    <FolderOpen className="w-10 h-10 text-slate-400 mx-auto mb-2" />
+                    <p className="font-bold text-slate-600">CSVファイルをドラッグ＆ドロップ</p>
+                    <p className="text-xs text-slate-400">{files.length}ファイル選択中</p>
+                  </div>
+                  <div className="w-64 space-y-2">
+                    <select value={encoding} onChange={(e) => setEncoding(e.target.value)} className="w-full p-2 border rounded bg-white"><option value="Shift_JIS">Shift_JIS (楽天)</option><option value="UTF-8">UTF-8 (一般)</option></select>
+                    <select value={targetColIndex} onChange={(e) => setTargetColIndex(Number(e.target.value))} className="w-full p-2 border rounded bg-white" disabled={headers.length === 0}>
+                      {headers.length === 0 && <option>カラム未選択</option>}
+                      {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                    </select>
+                    <div onClick={() => setIsHighSpeed(!isHighSpeed)} className={`p-2 rounded cursor-pointer border flex items-center gap-2 ${isHighSpeed ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50'}`}>
+                      <Zap className={`w-4 h-4 ${isHighSpeed ? 'text-indigo-600' : 'text-slate-400'}`} />
+                      <span className="text-xs font-bold">高速モード {isHighSpeed ? 'ON' : 'OFF'}</span>
                     </div>
                   </div>
                 </div>
-              </div>
-              {/* ... 実行ボタン ... */}
-              <div className="flex items-center gap-4 pt-2 border-t border-slate-100">
-                 <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                    <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${progress}%` }} />
-                 </div>
-                 {!isProcessing ? (
-                  <button onClick={startCsvProcessing} disabled={files.length === 0} className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold rounded-lg shadow-sm transition-colors">
-                    <Play className="w-4 h-4" /> 開始
-                  </button>
-                 ) : (
-                  <button onClick={() => {stopRef.current = true; setIsProcessing(false);}} className="flex items-center gap-2 px-6 py-2 bg-amber-500 text-white font-bold rounded-lg shadow-sm hover:bg-amber-600 transition-colors"><Pause className="w-4 h-4" /> 停止</button>
-                 )}
-              </div>
+                <button onClick={startCsvProcessing} disabled={files.length === 0 || isProcessing} className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold rounded-lg shadow-sm">
+                  {isProcessing ? 'AIチェック実行中...' : 'CSVチェック開始'}
+                </button>
              </div>
-             
-             {/* CSV結果リスト */}
              {results.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full">
-                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                  <h2 className="font-bold text-slate-700 text-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> 判定結果 ({results.length}件)</h2>
-                  <button onClick={() => downloadCSV(results)} disabled={results.length === 0} className="text-sm text-blue-600 hover:text-blue-800 disabled:text-slate-300 flex items-center gap-1 hover:bg-blue-50 px-3 py-1 rounded transition-colors"><Download className="w-4 h-4" /> CSV保存</button>
-                </div>
-                <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
-                      <tr>
-                        <th className="px-4 py-3 w-24 bg-slate-50 text-center">リスク</th>
-                        <th className="px-4 py-3 bg-slate-50 min-w-[300px]">商品名</th>
-                        <th className="px-4 py-3 w-1/3 min-w-[250px] bg-slate-50">理由</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {results.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3 text-center align-middle">{getRiskBadge(item.risk)}</td>
-                          <td className="px-4 py-3 font-medium text-slate-700 align-middle line-clamp-2" title={item.productName}>{item.productName}</td>
-                          <td className="px-4 py-3 text-slate-600 text-sm align-middle">{item.reason}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                 <div className="p-4 border-b flex justify-between items-center">
+                   <h3 className="font-bold">判定結果 ({results.length}件)</h3>
+                   <button onClick={() => downloadCSV(results)} className="text-blue-600 text-sm hover:underline">CSVダウンロード</button>
+                 </div>
+                 <div className="max-h-[600px] overflow-auto">
+                   <table className="w-full text-sm text-left">
+                     <thead className="bg-slate-50 sticky top-0">
+                       <tr><th className="p-3 text-center">判定</th><th className="p-3">商品名</th><th className="p-3">理由</th></tr>
+                     </thead>
+                     <tbody className="divide-y">
+                       {results.map((r, i) => (
+                         <tr key={i} className={r.isCritical ? 'bg-red-50' : ''}>
+                           <td className="p-3 text-center">{getRiskBadge(r)}</td>
+                           <td className="p-3 font-medium">{r.productName}</td>
+                           <td className="p-3 text-slate-600">{r.reason}</td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+                 </div>
+               </div>
              )}
           </div>
         )}
 
-        {activeTab === 'history' && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in w-full">
-             <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <div>
-                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><History className="w-5 h-5 text-blue-600" /> チェック履歴 (最新50件)</h2>
-                <p className="text-xs text-slate-500 mt-1">High/Mediumのリスク判定のみクラウドに保存されています。</p>
-              </div>
-              {!db && <span className="text-xs text-red-500 bg-red-50 px-2 py-1 rounded">※Firebase未設定</span>}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-slate-50">
-                  <tr>
-                    <th className="px-6 py-3">日時</th>
-                    <th className="px-6 py-3">リスク</th>
-                    <th className="px-6 py-3">商品名</th>
-                    <th className="px-6 py-3">理由</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {historyData.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-400 text-xs">
-                        {item.createdAt ? new Date(item.createdAt.seconds * 1000).toLocaleString() : '-'}
-                      </td>
-                      <td className="px-6 py-4">{getRiskBadge(item.risk)}</td>
-                      <td className="px-6 py-4 font-medium text-slate-700 max-w-xs truncate">{item.productName}</td>
-                      <td className="px-6 py-4 text-slate-600 text-xs">{item.reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
         {activeTab === 'settings' && (
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 w-full animate-in fade-in">
-             {/* ... 設定画面の中身（省略なし） ... */}
-             <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Settings className="w-5 h-5" /> アプリ設定</h2>
-            
-            <div className="space-y-4 max-w-2xl">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <label className="block text-sm font-bold text-blue-900 mb-1">1. Gemini API Key (必須)</label>
-                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full px-4 py-2 border rounded-lg bg-white" placeholder="AIza..." />
-              </div>
-
-              <div className="bg-orange-50 p-4 rounded-lg">
-                <label className="block text-sm font-bold text-orange-900 mb-1">2. 楽天アプリID (URL検索用)</label>
-                <input type="text" value={rakutenAppId} onChange={(e) => setRakutenAppId(e.target.value)} className="w-full px-4 py-2 border rounded-lg bg-white" placeholder="100... (数字の羅列)" />
-                <p className="text-xs text-orange-700 mt-1">
-                  <a href="https://webservice.rakuten.co.jp/" target="_blank" rel="noreferrer" className="underline">楽天Developers</a> で無料で発行できます。
-                </p>
-              </div>
-
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-2xl mx-auto animate-in fade-in">
+            <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Settings className="w-6 h-6" /> 設定</h2>
+            <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">3. Firebase Config (履歴保存用)</label>
-                <textarea 
-                  value={firebaseConfigJson} 
-                  onChange={(e) => setFirebaseConfigJson(e.target.value)} 
-                  className="w-full px-4 py-2 border rounded-lg bg-slate-50 h-24 text-xs font-mono" 
-                  placeholder='{"apiKey": "...", ...}' 
-                />
+                <label className="block font-bold text-sm mb-1">Gemini API Key</label>
+                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full p-3 border rounded-lg" placeholder="AIza..." />
               </div>
-
-              <div className="pt-4">
-                <button onClick={saveSettings} className="flex items-center justify-center gap-2 w-full bg-indigo-600 text-white font-bold py-2 rounded-lg hover:bg-indigo-700 transition-colors"><Save className="w-4 h-4" /> 設定を保存</button>
+              <div>
+                <label className="block font-bold text-sm mb-1">楽天アプリID</label>
+                <input type="text" value={rakutenAppId} onChange={(e) => setRakutenAppId(e.target.value)} className="w-full p-3 border rounded-lg" placeholder="100..." />
               </div>
+              <div>
+                <label className="block font-bold text-sm mb-1">Firebase Config (JSON)</label>
+                <textarea value={firebaseConfigJson} onChange={(e) => setFirebaseConfigJson(e.target.value)} className="w-full p-3 border rounded-lg h-32 font-mono text-xs" placeholder='{"apiKey": "..."}' />
+              </div>
+              <button onClick={saveSettings} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">設定を保存</button>
             </div>
           </div>
         )}
