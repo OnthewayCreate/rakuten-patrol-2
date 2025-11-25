@@ -1,18 +1,17 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Bell } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
 
 /**
  * ============================================================================
- * System Configuration & Utilities
+ * System Configuration
  * ============================================================================
  */
 const APP_CONFIG = {
-  FIXED_PASSWORD: 'admin123',
+  FIXED_PASSWORD: 'admin123', // 初期管理者パスワード
   API_TIMEOUT: 15000,
-  RETRY_LIMIT: 5,
-  VERSION: '3.0.0-PRO'
+  RETRY_LIMIT: 5
 };
 
 // --- Utility: CSV Parser ---
@@ -110,13 +109,8 @@ async function analyzeItemRisk(itemData, apiKey, retryCount = 0) {
   }
 }
 
-/**
- * ============================================================================
- * UI Components
- * ============================================================================
- */
+// --- UI Components ---
 
-// --- Toast Notification Component ---
 const ToastContainer = ({ toasts, removeToast }) => (
   <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
     {toasts.map((toast) => (
@@ -128,7 +122,6 @@ const ToastContainer = ({ toasts, removeToast }) => (
   </div>
 );
 
-// --- Risk Badge Component ---
 const RiskBadge = ({ item }) => {
   const { risk, isCritical } = item;
   if (isCritical) return <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-purple-600 text-white items-center gap-1 shadow-sm animate-pulse"><Siren className="w-3 h-3"/> 重大な疑い</span>;
@@ -137,7 +130,6 @@ const RiskBadge = ({ item }) => {
   return <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">問題なし</span>;
 };
 
-// --- Dashboard Stats Card ---
 const StatCard = ({ title, value, icon: Icon, color }) => (
   <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
     <div className={`p-3 rounded-full ${color} bg-opacity-10`}>
@@ -149,173 +141,6 @@ const StatCard = ({ title, value, icon: Icon, color }) => (
     </div>
   </div>
 );
-
-/**
- * ============================================================================
- * Main Application Container
- * ============================================================================
- */
-export default function App() {
-  // Global State
-  const [currentUser, setCurrentUser] = useState(null);
-  const [toasts, setToasts] = useState([]);
-  const [activeTab, setActiveTab] = useState('dashboard');
-  
-  // Configuration State
-  const [config, setConfig] = useState({ apiKey: '', rakutenAppId: '', firebaseJson: '' });
-  const [db, setDb] = useState(null);
-  const [dbStatus, setDbStatus] = useState('未接続');
-
-  // Data State
-  const [historyData, setHistoryData] = useState([]);
-  const [userList, setUserList] = useState([]);
-
-  // --- Toast Logic ---
-  const addToast = (message, type = 'info') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
-  };
-
-  // --- Firebase Init ---
-  const initFirebase = (configStr) => {
-    if (!configStr) return;
-    const fbConfig = parseFirebaseConfig(configStr);
-    if (!fbConfig) {
-      setDbStatus('設定エラー');
-      return;
-    }
-    try {
-      let app = getApps().length > 0 ? getApp() : initializeApp(fbConfig);
-      const firestore = getFirestore(app);
-      setDb(firestore);
-      setDbStatus('接続OK');
-      
-      // Listeners
-      const q = query(collection(firestore, 'ip_checks'), orderBy('createdAt', 'desc'), limit(200));
-      onSnapshot(q, (snap) => setHistoryData(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
-        err => console.warn("History sync warning:", err));
-
-      onSnapshot(collection(firestore, 'app_users'), (snap) => setUserList(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-        err => {}); // Silently fail if no permission
-        
-    } catch (e) {
-      console.error(e);
-      setDbStatus('接続エラー');
-    }
-  };
-
-  // --- Lifecycle ---
-  useEffect(() => {
-    const savedApiKey = localStorage.getItem('gemini_api_key') || '';
-    const savedRakutenId = localStorage.getItem('rakuten_app_id') || '';
-    const savedFbConfig = localStorage.getItem('firebase_config') || '';
-    
-    setConfig({ apiKey: savedApiKey, rakutenAppId: savedRakutenId, firebaseJson: savedFbConfig });
-    if (savedFbConfig) initFirebase(savedFbConfig);
-  }, []);
-
-  // --- Auth Handlers ---
-  const handleLogin = async (id, pass) => {
-    if (id === 'admin' && pass === FIXED_PASSWORD) {
-      setCurrentUser({ name: '管理者(System)', role: 'admin' });
-      addToast('管理者としてログインしました', 'success');
-      return;
-    }
-    if (!db) return addToast('Firebase未接続のため初期管理者のみログイン可能です', 'error');
-
-    try {
-      const q = query(collection(db, 'app_users'), where('loginId', '==', id), where('password', '==', pass));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const userData = snap.docs[0].data();
-        setCurrentUser({ name: userData.name, role: userData.role });
-        addToast(`ようこそ、${userData.name}さん`, 'success');
-      } else {
-        addToast('IDまたはパスワードが違います', 'error');
-      }
-    } catch (e) {
-      addToast('ログイン処理中にエラーが発生しました', 'error');
-    }
-  };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setActiveTab('dashboard');
-    addToast('ログアウトしました', 'info');
-  };
-
-  // --- Render Logic ---
-  if (!currentUser) return <LoginView onLogin={handleLogin} />;
-
-  return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col">
-      <ToastContainer toasts={toasts} removeToast={(id) => setToasts(prev => prev.filter(t => t.id !== id))} />
-      
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm h-16 flex items-center justify-between px-6">
-        <div className="flex items-center gap-3">
-          <div className="bg-blue-600 p-1.5 rounded-lg"><ShieldAlert className="w-5 h-5 text-white" /></div>
-          <h1 className="font-bold text-lg text-slate-800 tracking-tight">Rakuten Patrol <span className="text-xs font-normal text-slate-400 ml-1">Pro</span></h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full">
-            <User className="w-4 h-4 text-slate-500" />
-            <span className="text-xs font-bold text-slate-700">{currentUser.name}</span>
-            <span className="text-[10px] px-1.5 py-0.5 bg-white rounded border border-slate-200 text-slate-500">{currentUser.role === 'admin' ? 'ADMIN' : 'STAFF'}</span>
-          </div>
-          <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"><LogOut className="w-5 h-5" /></button>
-        </div>
-      </header>
-
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-64 bg-white border-r border-slate-200 flex flex-col overflow-y-auto hidden md:flex">
-          <div className="p-4 space-y-1">
-            <NavButton icon={LayoutDashboard} label="ダッシュボード" id="dashboard" active={activeTab} onClick={setActiveTab} />
-            <div className="my-2 border-b border-slate-100" />
-            <NavButton icon={ShoppingBag} label="楽天URL検索" id="url" active={activeTab} onClick={setActiveTab} />
-            <NavButton icon={FileText} label="CSV一括検査" id="checker" active={activeTab} onClick={setActiveTab} />
-            <div className="my-2 border-b border-slate-100" />
-            <NavButton icon={History} label="検査履歴" id="history" active={activeTab} onClick={setActiveTab} />
-            {currentUser.role === 'admin' && (
-              <>
-                <div className="my-2 border-b border-slate-100" />
-                <NavButton icon={Users} label="ユーザー管理" id="users" active={activeTab} onClick={setActiveTab} />
-                <NavButton icon={Settings} label="システム設定" id="settings" active={activeTab} onClick={setActiveTab} />
-              </>
-            )}
-          </div>
-          <div className="mt-auto p-4 border-t border-slate-100">
-            <div className="text-xs text-slate-400 flex justify-between items-center">
-              <span>Status</span>
-              <span className={`flex items-center gap-1 ${dbStatus === '接続OK' ? 'text-green-500' : 'text-red-500'}`}>
-                <span className={`w-2 h-2 rounded-full ${dbStatus === '接続OK' ? 'bg-green-500' : 'bg-red-500'}`} />
-                {dbStatus}
-              </span>
-            </div>
-          </div>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'dashboard' && <DashboardView historyData={historyData} onNavigate={setActiveTab} />}
-          {activeTab === 'url' && <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} />}
-          {activeTab === 'checker' && <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} />}
-          {activeTab === 'history' && <HistoryView data={historyData} />}
-          {activeTab === 'users' && <UserManagementView db={db} userList={userList} addToast={addToast} />}
-          {activeTab === 'settings' && <SettingsView config={config} setConfig={setConfig} addToast={addToast} initFirebase={initFirebase} />}
-        </main>
-      </div>
-    </div>
-  );
-}
-
-/**
- * ============================================================================
- * Sub-Components (Views)
- * ============================================================================
- */
 
 const NavButton = ({ icon: Icon, label, id, active, onClick }) => (
   <button
@@ -336,8 +161,15 @@ const LoginView = ({ onLogin }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    await onLogin(id, pass);
-    setLoading(false);
+    try {
+      // 入力値の前後の空白を削除して送信
+      await onLogin(id.trim(), pass.trim());
+    } catch (e) {
+      console.error(e);
+    } finally {
+      // 成功しても失敗しても必ずローディングを止める（これがないとグルグルし続ける）
+      setLoading(false);
+    }
   };
 
   return (
@@ -369,9 +201,7 @@ const LoginView = ({ onLogin }) => {
             {loading && <Loader2 className="w-4 h-4 animate-spin" />} ログイン
           </button>
         </form>
-        <div className="mt-6 text-center text-xs text-slate-400">
-          Default Admin: admin / admin123
-        </div>
+        {/* クレデンシャル表示を削除しました */}
       </div>
     </div>
   );
@@ -399,13 +229,13 @@ const DashboardView = ({ historyData, onNavigate }) => {
           <p className="text-slate-500">最新のパトロール状況のサマリー</p>
         </div>
         <button onClick={() => onNavigate('url')} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2">
-          <PlusIcon className="w-4 h-4" /> 新規チェック開始
+          <Search className="w-4 h-4" /> 新規チェック開始
         </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard title="本日のチェック数" value={stats.today} icon={RefreshCw} color="bg-blue-500 text-blue-500" />
-        <StatCard title="重大な権利侵害疑い" value={stats.critical} icon={Siren} color="bg-purple-500 text-purple-500" />
+        <StatCard title="重大な疑い" value={stats.critical} icon={Siren} color="bg-purple-500 text-purple-500" />
         <StatCard title="高リスク商品数" value={stats.high} icon={AlertCircle} color="bg-red-500 text-red-500" />
         <StatCard title="ログ保存総数" value={stats.total} icon={History} color="bg-slate-500 text-slate-500" />
       </div>
@@ -436,9 +266,6 @@ const DashboardView = ({ historyData, onNavigate }) => {
     </div>
   );
 };
-
-// ... (Reuse UrlSearchView, CsvSearchView, HistoryView, SettingsView logic but wrapped in cleaner components) ...
-// For brevity in this monolithic file, I will inline the updated logic for UrlSearchView as an example of the "Pro" polish.
 
 const UrlSearchView = ({ config, db, currentUser, addToast }) => {
   const [targetUrl, setTargetUrl] = useState('');
@@ -497,7 +324,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
         setStatus(`AI分析開始... (全${allProducts.length}件)`);
         let processedCount = 0;
         
-        // Process in batches
         const BATCH_SIZE = 3;
         for (let i = 0; i < allProducts.length; i += BATCH_SIZE) {
           if (stopRef.current) break;
@@ -508,7 +334,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
           
           const batchResults = await Promise.all(promises);
           
-          // Save to Firestore & State
           batchResults.forEach(res => {
             if (db && (res.risk_level === '高' || res.risk_level === '中' || res.is_critical)) {
               addDoc(collection(db, 'ip_checks'), {
@@ -520,7 +345,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
           setResults(prev => [...prev, ...batchResults.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))]);
           processedCount += batch.length;
           setProgress((processedCount / allProducts.length) * 100);
-          await new Promise(r => setTimeout(r, 500)); // Rate limit buffer
+          await new Promise(r => setTimeout(r, 500)); 
         }
         addToast('チェックが完了しました', 'success');
         setStatus('完了');
@@ -533,7 +358,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
     }
   };
 
-  // Function to download results as CSV
   const downloadCsv = () => {
     const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
     let csvContent = "商品名,リスク,危険度,理由,担当者,商品URL,日時\n";
@@ -557,25 +381,25 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
 
   return (
     <div className="space-y-6 animate-in fade-in">
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm w-full">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><ShoppingBag className="w-5 h-5 text-blue-600"/> 楽天ショップ全商品取得＆AI判定</h2>
           {!config.rakutenAppId && <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded">設定未完了</span>}
         </div>
-        <div className="flex gap-4">
+        <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <input type="text" value={targetUrl} onChange={e => setTargetUrl(e.target.value)} className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://www.rakuten.co.jp/..." />
           </div>
-          <div className="w-40">
-            <select value={maxPages} onChange={e => setMaxPages(Number(e.target.value))} className="w-full h-full px-3 border rounded-lg bg-white">
+          <div className="w-full md:w-40">
+            <select value={maxPages} onChange={e => setMaxPages(Number(e.target.value))} className="w-full h-12 px-3 border rounded-lg bg-white">
               <option value="5">5ページ (150件)</option>
               <option value="34">全件 (最大)</option>
             </select>
           </div>
           {!isProcessing ? (
-            <button onClick={handleSearch} className="px-6 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-sm flex items-center gap-2"><Search className="w-4 h-4"/> 開始</button>
+            <button onClick={handleSearch} className="w-full md:w-auto px-6 h-12 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2"><Search className="w-4 h-4"/> 開始</button>
           ) : (
-            <button onClick={() => stopRef.current = true} className="px-6 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 shadow-sm"><Pause className="w-4 h-4"/> 中断</button>
+            <button onClick={() => stopRef.current = true} className="w-full md:w-auto px-6 h-12 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 shadow-sm flex items-center justify-center gap-2"><Pause className="w-4 h-4"/> 中断</button>
           )}
         </div>
         {status && <div className="mt-4 text-sm text-slate-500 flex items-center gap-2 bg-slate-50 p-2 rounded"><RefreshCw className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`}/> {status}</div>}
@@ -583,7 +407,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
       </div>
 
       {results.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
           <div className="p-4 border-b border-slate-100 flex justify-between items-center">
             <h3 className="font-bold text-slate-700">判定結果 ({results.length})</h3>
             <button onClick={downloadCsv} className="text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded flex items-center gap-1"><Download className="w-4 h-4"/> CSV出力</button>
@@ -622,27 +446,91 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
 };
 
 const CsvSearchView = ({ config, db, currentUser, addToast }) => {
-  // Reuse similar logic or simplify for brevity in this example.
-  // Implementing basic UI structure for completeness.
   const [files, setFiles] = useState([]);
-  
+  const [results, setResults] = useState([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const stopRef = useRef(false);
+  const [progress, setProgress] = useState(0);
+
+  const handleFileUpload = async (e) => {
+    const uploadedFiles = e.target.files ? Array.from(e.target.files) : [];
+    if (uploadedFiles.length === 0) return;
+    setFiles(uploadedFiles);
+    setResults([]);
+    
+    let combinedData = [];
+    for (let i = 0; i < uploadedFiles.length; i++) {
+      try {
+        const text = await readFileAsText(uploadedFiles[i], 'Shift_JIS');
+        const parsed = parseCSV(text);
+        if (parsed.length > 1) {
+          const headers = parsed[0];
+          const nameIdx = headers.findIndex(h => h.includes('商品名') || h.includes('Name'));
+          const rows = parsed.slice(1).map(row => ({ productName: row[nameIdx !== -1 ? nameIdx : 0], imageUrl: null, sourceFile: uploadedFiles[i].name }));
+          combinedData = [...combinedData, ...rows];
+        }
+      } catch (e) {
+        addToast(`${uploadedFiles[i].name}の読み込みに失敗`, 'error');
+      }
+    }
+    // Start check
+    if (combinedData.length > 0) startCheck(combinedData);
+  };
+
+  const startCheck = async (items) => {
+    if (!config.apiKey) return addToast('APIキーが設定されていません', 'error');
+    setIsProcessing(true);
+    stopRef.current = false;
+    let processed = 0;
+    
+    const BATCH = 3;
+    for(let i=0; i<items.length; i+=BATCH) {
+      if(stopRef.current) break;
+      const batch = items.slice(i, i+BATCH);
+      const promises = batch.map(item => analyzeItemRisk(item, config.apiKey).then(res => ({...item, ...res})));
+      const resBatch = await Promise.all(promises);
+      
+      resBatch.forEach(res => {
+        if(db && (res.risk_level === '高' || res.risk_level === '中' || res.is_critical)) {
+           addDoc(collection(db, 'ip_checks'), { ...res, risk: res.risk_level, isCritical: res.is_critical, pic: currentUser.name, createdAt: serverTimestamp() });
+        }
+      });
+      
+      setResults(prev => [...prev, ...resBatch.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))]);
+      processed += batch.length;
+      setProgress((processed / items.length)*100);
+      await new Promise(r => setTimeout(r, 200));
+    }
+    setIsProcessing(false);
+    addToast('CSVチェック完了', 'success');
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
-      <div className="bg-white p-12 rounded-xl border border-slate-200 border-dashed text-center hover:bg-slate-50 transition-colors cursor-pointer relative">
-        <input type="file" multiple accept=".csv" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => setFiles(Array.from(e.target.files))} />
+      <div className="bg-white p-12 rounded-xl border border-slate-200 border-dashed text-center hover:bg-slate-50 transition-colors cursor-pointer relative w-full">
+        <input type="file" multiple accept=".csv" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isProcessing} />
         <FolderOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
         <h3 className="text-lg font-bold text-slate-700">CSVファイルをドラッグ＆ドロップ</h3>
-        <p className="text-slate-400">またはクリックして選択</p>
-        {files.length > 0 && <div className="mt-4 px-4 py-2 bg-blue-100 text-blue-700 rounded-full inline-block font-bold">{files.length}ファイル選択中</div>}
+        <p className="text-slate-400">またはクリックして選択 (Shift-JIS対応)</p>
+        {isProcessing && <div className="mt-4 text-blue-600 font-bold">処理中... {Math.round(progress)}%</div>}
       </div>
-      {/* Implementation of CSV logic would mirror UrlSearchView but with file parsing */}
-      <div className="text-center text-slate-400 p-4">※CSV機能はURL検索と同様のロジックで実装可能です（コード長制限のため省略）</div>
+      {results.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
+          <div className="p-4 border-b border-slate-100"><h3 className="font-bold">CSV判定結果</h3></div>
+          <div className="max-h-[600px] overflow-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-50 sticky top-0"><tr><th className="p-3 text-center">判定</th><th className="p-3">商品名</th><th className="p-3">理由</th></tr></thead>
+              <tbody className="divide-y">{results.map((r,i)=><tr key={i}><td className="p-3 text-center"><RiskBadge item={r}/></td><td className="p-3">{r.productName}</td><td className="p-3 text-slate-500">{r.reason}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 const HistoryView = ({ data }) => (
-  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in">
+  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in w-full">
     <div className="p-4 border-b border-slate-100"><h2 className="font-bold text-slate-800">全チェック履歴</h2></div>
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
@@ -678,14 +566,14 @@ const UserManagementView = ({ db, userList, addToast }) => {
   };
 
   return (
-    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm animate-in fade-in">
+    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm animate-in fade-in w-full">
       <h2 className="font-bold text-lg mb-6 flex items-center gap-2"><Users className="w-5 h-5 text-blue-600"/> ユーザー管理</h2>
-      <div className="flex gap-4 items-end mb-8 bg-slate-50 p-4 rounded-lg">
-        <div className="flex-1"><label className="text-xs font-bold text-slate-500">名前</label><input className="w-full p-2 border rounded" value={newUser.name} onChange={e=>setNewUser({...newUser, name: e.target.value})} /></div>
-        <div className="flex-1"><label className="text-xs font-bold text-slate-500">ID</label><input className="w-full p-2 border rounded" value={newUser.loginId} onChange={e=>setNewUser({...newUser, loginId: e.target.value})} /></div>
-        <div className="flex-1"><label className="text-xs font-bold text-slate-500">PASS</label><input className="w-full p-2 border rounded" value={newUser.password} onChange={e=>setNewUser({...newUser, password: e.target.value})} /></div>
-        <div className="w-24"><label className="text-xs font-bold text-slate-500">権限</label><select className="w-full p-2 border rounded" value={newUser.role} onChange={e=>setNewUser({...newUser, role: e.target.value})}><option value="staff">Staff</option><option value="admin">Admin</option></select></div>
-        <button onClick={handleAdd} className="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-700 flex items-center gap-1"><UserPlus className="w-4 h-4"/> 追加</button>
+      <div className="flex flex-col md:flex-row gap-4 items-end mb-8 bg-slate-50 p-4 rounded-lg">
+        <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500">名前</label><input className="w-full p-2 border rounded" value={newUser.name} onChange={e=>setNewUser({...newUser, name: e.target.value})} /></div>
+        <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500">ID</label><input className="w-full p-2 border rounded" value={newUser.loginId} onChange={e=>setNewUser({...newUser, loginId: e.target.value})} /></div>
+        <div className="flex-1 w-full"><label className="text-xs font-bold text-slate-500">PASS</label><input className="w-full p-2 border rounded" value={newUser.password} onChange={e=>setNewUser({...newUser, password: e.target.value})} /></div>
+        <div className="w-full md:w-24"><label className="text-xs font-bold text-slate-500">権限</label><select className="w-full p-2 border rounded" value={newUser.role} onChange={e=>setNewUser({...newUser, role: e.target.value})}><option value="staff">Staff</option><option value="admin">Admin</option></select></div>
+        <button onClick={handleAdd} className="w-full md:w-auto px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-700 flex items-center justify-center gap-1"><UserPlus className="w-4 h-4"/> 追加</button>
       </div>
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-50 font-bold text-slate-600"><tr><th className="p-3">名前</th><th className="p-3">ID</th><th className="p-3">権限</th><th className="p-3 text-right">操作</th></tr></thead>
@@ -705,7 +593,7 @@ const SettingsView = ({ config, setConfig, addToast, initFirebase }) => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in">
+    <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl border border-slate-200 shadow-sm animate-in fade-in w-full">
       <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Settings className="w-6 h-6 text-slate-700"/> システム設定</h2>
       <div className="space-y-6">
         <div><label className="block font-bold text-sm mb-1">Gemini API Key</label><input type="password" value={config.apiKey} onChange={e => setConfig({...config, apiKey: e.target.value})} className="w-full p-3 border rounded-lg" /></div>
@@ -717,5 +605,147 @@ const SettingsView = ({ config, setConfig, addToast, initFirebase }) => {
   );
 };
 
-// Helper Icon for Dashboard
-const PlusIcon = ({className}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>;
+// App Container
+export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  
+  const [config, setConfig] = useState({ apiKey: '', rakutenAppId: '', firebaseJson: '' });
+  const [db, setDb] = useState(null);
+  const [dbStatus, setDbStatus] = useState('未接続');
+
+  const [historyData, setHistoryData] = useState([]);
+  const [userList, setUserList] = useState([]);
+
+  const addToast = (message, type = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+  };
+
+  const initFirebase = (configStr) => {
+    if (!configStr) return;
+    const fbConfig = parseFirebaseConfig(configStr);
+    if (!fbConfig) {
+      setDbStatus('設定エラー');
+      return;
+    }
+    try {
+      let app = getApps().length > 0 ? getApp() : initializeApp(fbConfig);
+      const firestore = getFirestore(app);
+      setDb(firestore);
+      setDbStatus('接続OK');
+      
+      const q = query(collection(firestore, 'ip_checks'), orderBy('createdAt', 'desc'), limit(200));
+      onSnapshot(q, (snap) => setHistoryData(snap.docs.map(d => ({ id: d.id, ...d.data() }))), 
+        err => console.warn("History sync warning:", err));
+
+      onSnapshot(collection(firestore, 'app_users'), (snap) => setUserList(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+        err => {}); 
+        
+    } catch (e) {
+      console.error(e);
+      setDbStatus('接続エラー');
+    }
+  };
+
+  useEffect(() => {
+    const savedApiKey = localStorage.getItem('gemini_api_key') || '';
+    const savedRakutenId = localStorage.getItem('rakuten_app_id') || '';
+    const savedFbConfig = localStorage.getItem('firebase_config') || '';
+    
+    setConfig({ apiKey: savedApiKey, rakutenAppId: savedRakutenId, firebaseJson: savedFbConfig });
+    if (savedFbConfig) initFirebase(savedFbConfig);
+  }, []);
+
+  const handleLogin = async (id, pass) => {
+    if (id === 'admin' && pass === APP_CONFIG.FIXED_PASSWORD) {
+      setCurrentUser({ name: '管理者(System)', role: 'admin' });
+      addToast('管理者としてログインしました', 'success');
+      return;
+    }
+    if (!db) return addToast('Firebase未接続のため初期管理者のみログイン可能です', 'error');
+
+    try {
+      const q = query(collection(db, 'app_users'), where('loginId', '==', id), where('password', '==', pass));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const userData = snap.docs[0].data();
+        setCurrentUser({ name: userData.name, role: userData.role });
+        addToast(`ようこそ、${userData.name}さん`, 'success');
+      } else {
+        addToast('IDまたはパスワードが違います', 'error');
+      }
+    } catch (e) {
+      addToast('ログイン処理中にエラーが発生しました', 'error');
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setActiveTab('dashboard');
+    addToast('ログアウトしました', 'info');
+  };
+
+  if (!currentUser) return <LoginView onLogin={handleLogin} />;
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col">
+      <ToastContainer toasts={toasts} removeToast={(id) => setToasts(prev => prev.filter(t => t.id !== id))} />
+      
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm h-16 flex items-center justify-between px-6">
+        <div className="flex items-center gap-3">
+          <div className="bg-blue-600 p-1.5 rounded-lg"><ShieldAlert className="w-5 h-5 text-white" /></div>
+          <h1 className="font-bold text-lg text-slate-800 tracking-tight">Rakuten Patrol <span className="text-xs font-normal text-slate-400 ml-1">Pro</span></h1>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full">
+            <User className="w-4 h-4 text-slate-500" />
+            <span className="text-xs font-bold text-slate-700">{currentUser.name}</span>
+            <span className="text-[10px] px-1.5 py-0.5 bg-white rounded border border-slate-200 text-slate-500">{currentUser.role === 'admin' ? 'ADMIN' : 'STAFF'}</span>
+          </div>
+          <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"><LogOut className="w-5 h-5" /></button>
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+        <aside className="w-64 bg-white border-r border-slate-200 flex flex-col overflow-y-auto hidden md:flex">
+          <div className="p-4 space-y-1">
+            <NavButton icon={LayoutDashboard} label="ダッシュボード" id="dashboard" active={activeTab} onClick={setActiveTab} />
+            <div className="my-2 border-b border-slate-100" />
+            <NavButton icon={ShoppingBag} label="楽天URL検索" id="url" active={activeTab} onClick={setActiveTab} />
+            <NavButton icon={FileText} label="CSV一括検査" id="checker" active={activeTab} onClick={setActiveTab} />
+            <div className="my-2 border-b border-slate-100" />
+            <NavButton icon={History} label="検査履歴" id="history" active={activeTab} onClick={setActiveTab} />
+            {currentUser.role === 'admin' && (
+              <>
+                <div className="my-2 border-b border-slate-100" />
+                <NavButton icon={Users} label="ユーザー管理" id="users" active={activeTab} onClick={setActiveTab} />
+                <NavButton icon={Settings} label="システム設定" id="settings" active={activeTab} onClick={setActiveTab} />
+              </>
+            )}
+          </div>
+          <div className="mt-auto p-4 border-t border-slate-100">
+            <div className="text-xs text-slate-400 flex justify-between items-center">
+              <span>Status</span>
+              <span className={`flex items-center gap-1 ${dbStatus === '接続OK' ? 'text-green-500' : 'text-red-500'}`}>
+                <span className={`w-2 h-2 rounded-full ${dbStatus === '接続OK' ? 'bg-green-500' : 'bg-red-500'}`} />
+                {dbStatus}
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        <main className="flex-1 overflow-y-auto p-6 w-full">
+          {activeTab === 'dashboard' && <DashboardView historyData={historyData} onNavigate={setActiveTab} />}
+          {activeTab === 'url' && <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} />}
+          {activeTab === 'checker' && <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} />}
+          {activeTab === 'history' && <HistoryView data={historyData} />}
+          {activeTab === 'users' && <UserManagementView db={db} userList={userList} addToast={addToast} />}
+          {activeTab === 'settings' && <SettingsView config={config} setConfig={setConfig} addToast={addToast} initFirebase={initFirebase} />}
+        </main>
+      </div>
+    </div>
+  );
+}
