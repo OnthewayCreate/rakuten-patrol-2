@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
 
@@ -12,7 +12,7 @@ const APP_CONFIG = {
   FIXED_PASSWORD: 'admin123',
   API_TIMEOUT: 30000,
   RETRY_LIMIT: 8,
-  VERSION: '7.0.1-FixScope'
+  VERSION: '8.0.0-LivePatrol'
 };
 
 const parseCSV = (text) => {
@@ -588,6 +588,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   const [shopMeta, setShopMeta] = useState({ count: 0, shopCode: '', shopName: '' });
   const [checkRange, setCheckRange] = useState(30);
   const [sessionId, setSessionId] = useState(null); 
+  const [liveLog, setLiveLog] = useState([]); // Realtime logs
 
   const previousHistory = useMemo(() => {
     if (!targetUrl) return null;
@@ -596,6 +597,8 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   }, [targetUrl, historySessions]);
 
   const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
+
+  const addLog = (msg) => setLiveLog(prev => [msg, ...prev].slice(0, 5)); // Keep last 5 logs
 
   const fetchShopInfo = async () => {
     if (!config.rakutenAppId) return addToast('楽天アプリIDが設定されていません', 'error');
@@ -670,6 +673,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                   break;
               }
 
+              addLog(`ページ ${page}/${neededPages} の商品データを取得中...`);
               updateState({ status: `データ取得中... (${page}ページ目)` });
 
               const apiUrl = new URL('/api/rakuten', window.location.origin);
@@ -693,9 +697,18 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
               for (let i = 0; i < pageProducts.length; i += BATCH_SIZE) {
                   if (stopRef.current) break;
                   const batch = pageProducts.slice(i, i + BATCH_SIZE);
+                  addLog(`AI分析中: ${batch[0].productName.slice(0, 15)}... 他${batch.length-1}件`);
+                  
                   const promises = batch.map(item => analyzeItemRisk(item, config.apiKey).then(res => ({ ...item, ...res })));
                   const batchRes = await Promise.all(promises);
                   pageResults = [...pageResults, ...batchRes.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))];
+                  
+                  // Update UI incrementally for "Live" feel
+                  updateState({ 
+                      results: [...totalResults, ...pageResults],
+                      progress: ((totalResults.length + pageResults.length) / checkRange) * 100
+                  });
+                  
                   await new Promise(r => setTimeout(r, WAIT_TIME));
               }
 
@@ -703,11 +716,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
               
               await updateSessionStatus(sessId, 'processing', page, totalResults);
               
-              updateState({ 
-                  results: totalResults,
-                  progress: (totalResults.length / checkRange) * 100
-              });
-
               if (totalResults.length >= checkRange) break;
               
               await new Promise(r => setTimeout(r, 1000));
@@ -732,6 +740,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
       
       setUrlStep('processing');
+      setLiveLog([]);
       updateState({ isProcessing: true, status: '準備中...', progress: 0 });
       stopRef.current = false;
 
@@ -785,7 +794,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
             <div className="mb-6">
                 <div className="inline-flex p-4 bg-blue-50 rounded-full mb-4 text-blue-600"><ShoppingBag className="w-12 h-12"/></div>
                 <h2 className="text-2xl font-bold text-slate-800">楽天ショップ自動パトロール</h2>
-                <p className="text-slate-500 mt-2">ショップURLを入力すると、商品数を確認してからチェックを実行できます。</p>
+                <p className="text-slate-500 mt-2">ショップURLを入力すると、AIが全商品をチェックします。</p>
             </div>
             <div className="flex flex-col md:flex-row gap-4 items-center justify-center">
                 <input 
@@ -820,6 +829,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
               <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-3xl mx-auto">
                   <button onClick={handleReset} className="mb-4 text-sm text-slate-400 hover:text-blue-600 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> 戻る</button>
                   <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><ShoppingBag className="w-6 h-6 text-blue-600"/> 取得対象の確認</h2>
+                  
                   <div className="bg-slate-50 p-6 rounded-xl mb-8 flex items-center justify-between">
                       <div>
                           <p className="text-sm text-slate-500 font-bold">ショップ名</p>
@@ -831,12 +841,28 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                           <p className="text-3xl font-bold text-blue-600">{shopMeta.count.toLocaleString()} <span className="text-sm text-slate-400">件</span></p>
                       </div>
                   </div>
+
                   <div className="space-y-4">
-                      <p className="font-bold text-slate-700">チェックする範囲を選択してください:</p>
+                      <p className="font-bold text-slate-700">チェック範囲を選択:</p>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <button onClick={() => { setCheckRange(30); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">最新 30件</div><div className="text-xs text-slate-500">お試しチェック</div></button>
-                          <button onClick={() => { setCheckRange(150); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">最新 150件</div><div className="text-xs text-slate-500">直近の商品</div></button>
-                          <button onClick={() => { setCheckRange(3000); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">全件 (Max 3000)</div><div className="text-xs text-slate-500">徹底的にチェック</div></button>
+                          <button onClick={() => { setCheckRange(30); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 bg-white hover:bg-blue-50 rounded-xl text-left transition-all">
+                              <div className="font-bold text-lg text-slate-800 mb-1">クイック</div>
+                              <div className="text-blue-600 font-bold">最新 30件</div>
+                              <div className="text-xs text-slate-400 mt-1">所要時間: 約30秒</div>
+                          </button>
+                          <button onClick={() => { setCheckRange(300); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 bg-white hover:bg-blue-50 rounded-xl text-left transition-all">
+                              <div className="font-bold text-lg text-slate-800 mb-1">スタンダード</div>
+                              <div className="text-blue-600 font-bold">最新 300件</div>
+                              <div className="text-xs text-slate-400 mt-1">所要時間: 約5分</div>
+                          </button>
+                          <button onClick={() => { 
+                              if(shopMeta.count > 3000 && !confirm(`商品数が${shopMeta.count}件あります。全件チェックには時間がかかりますが実行しますか？`)) return;
+                              setCheckRange(3000); handleStart(null); 
+                          }} className="p-4 border-2 border-slate-200 hover:border-blue-300 bg-white hover:bg-blue-50 rounded-xl text-left transition-all">
+                              <div className="font-bold text-lg text-slate-800 mb-1">フルスキャン</div>
+                              <div className="text-blue-600 font-bold">全件 (Max 3000)</div>
+                              <div className="text-xs text-slate-400 mt-1">所要時間: 30分〜</div>
+                          </button>
                       </div>
                   </div>
               </div>
@@ -845,16 +871,69 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   }
 
   if (urlStep === 'processing') {
+      // New Live Patrol Screen
+      const latestItem = results.length > 0 ? results[results.length - 1] : null;
+
       return (
-          <div className="space-y-6 animate-in fade-in w-full">
-             <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-3xl mx-auto text-center py-20">
-                 <Loader2 className="w-16 h-16 text-blue-500 animate-spin mx-auto mb-6"/>
-                 <h2 className="text-2xl font-bold text-slate-800 mb-2">AI弁理士がパトロール中...</h2>
-                 <p className="text-slate-500 mb-8">{status}</p>
-                 <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden mb-4"><div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }}></div></div>
-                 <p className="text-sm text-slate-400 font-mono">{results.length} 件完了 / {Math.round(progress)}%</p>
-                 <p className="text-xs text-slate-400 mt-2">※他の画面に移動しても処理は継続されます。</p>
-                 <button onClick={() => stopRef.current = true} className="mt-8 text-slate-400 hover:text-red-500 text-sm underline">中断して保存</button>
+          <div className="space-y-6 animate-in fade-in w-full h-full flex flex-col">
+             <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg flex flex-col md:flex-row gap-6 items-stretch">
+                 {/* Status Panel */}
+                 <div className="flex-1 flex flex-col justify-center">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="relative">
+                            <Activity className="w-8 h-8 text-green-400 animate-pulse"/>
+                            <span className="absolute top-0 right-0 w-2 h-2 bg-green-400 rounded-full animate-ping"></span>
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold">AIリアルタイム監査中</h2>
+                            <p className="text-slate-400 text-sm">{status}</p>
+                        </div>
+                    </div>
+                    <div className="w-full bg-slate-700 rounded-full h-3 overflow-hidden mb-2">
+                         <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
+                    </div>
+                    <div className="flex justify-between text-xs font-mono text-slate-400">
+                        <span>Progress: {Math.round(progress)}%</span>
+                        <span>Checked: {results.length} items</span>
+                    </div>
+                 </div>
+
+                 {/* Live Item Preview */}
+                 <div className="w-full md:w-1/3 bg-slate-800 rounded-lg p-4 border border-slate-700 flex items-center gap-4">
+                    {latestItem ? (
+                        <>
+                            <img src={latestItem.imageUrl} alt="" className="w-16 h-16 object-cover rounded bg-white" />
+                            <div className="min-w-0">
+                                <p className="text-xs text-slate-400 mb-1">Current Analyzing:</p>
+                                <p className="text-sm font-bold truncate text-white">{latestItem.productName}</p>
+                                <div className="mt-2">
+                                    {latestItem.risk === '高' ? <span className="text-red-400 font-bold text-xs flex items-center gap-1"><Siren className="w-3 h-3"/> High Risk Detected</span> : <span className="text-green-400 text-xs">OK</span>}
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-slate-500 text-sm flex items-center justify-center w-full h-full">Waiting for data...</div>
+                    )}
+                 </div>
+             </div>
+
+             {/* Live Log (Terminal Style) */}
+             <div className="bg-black rounded-xl p-4 font-mono text-xs text-green-400 h-48 overflow-hidden flex flex-col shadow-inner border border-slate-800">
+                 <div className="flex items-center gap-2 pb-2 border-b border-slate-800 mb-2 text-slate-500">
+                     <Terminal className="w-3 h-3"/> System Log
+                 </div>
+                 <div className="flex-1 overflow-y-auto space-y-1">
+                     {liveLog.map((log, i) => (
+                         <div key={i} className="opacity-80 border-l-2 border-green-900 pl-2">
+                             <span className="text-slate-500">[{new Date().toLocaleTimeString()}]</span> {log}
+                         </div>
+                     ))}
+                     <div className="animate-pulse">_</div>
+                 </div>
+             </div>
+
+             <div className="text-center">
+                 <button onClick={() => stopRef.current = true} className="text-slate-400 hover:text-white text-sm underline">処理を中断して結果を見る</button>
              </div>
           </div>
       );
