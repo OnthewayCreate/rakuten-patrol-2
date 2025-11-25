@@ -12,7 +12,7 @@ const APP_CONFIG = {
   FIXED_PASSWORD: 'admin123',
   API_TIMEOUT: 30000,
   RETRY_LIMIT: 8,
-  VERSION: '7.0.0-BackgroundWorker'
+  VERSION: '7.0.1-FixScope'
 };
 
 const parseCSV = (text) => {
@@ -344,7 +344,7 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
 };
 
 const DashboardView = ({ sessions, onNavigate }) => {
-  const [drillDownType, setDrillDownType] = useState(null); // 'critical' | 'high' | 'today' | 'all'
+  const [drillDownType, setDrillDownType] = useState(null); 
 
   const stats = useMemo(() => {
     let totalChecks = 0;
@@ -581,13 +581,13 @@ const saveSessionToFirestore = async (db, currentUser, type, target, allResults)
     }
 };
 
+// --- The Unified UrlSearchView Component ---
 const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef, isHighSpeed, setIsHighSpeed, historySessions, onResume }) => {
   const { targetUrl, results, isProcessing, progress, status, maxPages } = state;
   const [urlStep, setUrlStep] = useState('input'); 
   const [shopMeta, setShopMeta] = useState({ count: 0, shopCode: '', shopName: '' });
   const [checkRange, setCheckRange] = useState(30);
   const [sessionId, setSessionId] = useState(null); 
-  const [startPage, setStartPage] = useState(1);
 
   const previousHistory = useMemo(() => {
     if (!targetUrl) return null;
@@ -635,6 +635,99 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
     }
   };
 
+  // Update Session status logic
+  const updateSessionStatus = async (sessId, status, lastPage, details) => {
+      if (!db || !sessId) return;
+      try {
+          const summary = {
+              total: details.length,
+              high: details.filter(r => r.risk === '高' || r.risk === 'High').length,
+              medium: details.filter(r => r.risk === '中' || r.risk === 'Medium').length,
+              critical: details.filter(r => r.isCritical).length
+          };
+          await updateDoc(doc(db, 'check_sessions', sessId), {
+              status,
+              lastPage,
+              summary,
+              details: details,
+              updatedAt: serverTimestamp()
+          });
+      } catch(e) { console.error("Update Error", e); }
+  };
+
+  const runUrlCheckLoop = async (startP, sessId, currentResults) => {
+      let page = startP;
+      let totalResults = [...currentResults];
+      
+      // Resume時はcheckRangeをどうするか？全件継続とする
+      const neededPages = Math.ceil(checkRange / 30); 
+
+      try {
+          while (page <= neededPages) {
+              if (stopRef.current) {
+                  await updateSessionStatus(sessId, 'paused', page - 1, totalResults);
+                  updateState({ status: '中断しました' });
+                  break;
+              }
+
+              updateState({ status: `データ取得中... (${page}ページ目)` });
+
+              const apiUrl = new URL('/api/rakuten', window.location.origin);
+              apiUrl.searchParams.append('shopUrl', targetUrl);
+              apiUrl.searchParams.append('appId', config.rakutenAppId);
+              apiUrl.searchParams.append('page', page.toString());
+
+              const res = await fetch(apiUrl.toString());
+              if (!res.ok) break;
+              const data = await res.json();
+              
+              if (!data.products || data.products.length === 0) break;
+              
+              updateState({ status: `AI分析中... (${page}ページ目)` });
+              const pageProducts = data.products.map(p => ({ productName: p.name, sourceFile: targetUrl, imageUrl: p.imageUrl, itemUrl: p.url }));
+              
+              const BATCH_SIZE = isHighSpeed ? 15 : 3;
+              const WAIT_TIME = isHighSpeed ? 0 : 500;
+              let pageResults = [];
+
+              for (let i = 0; i < pageProducts.length; i += BATCH_SIZE) {
+                  if (stopRef.current) break;
+                  const batch = pageProducts.slice(i, i + BATCH_SIZE);
+                  const promises = batch.map(item => analyzeItemRisk(item, config.apiKey).then(res => ({ ...item, ...res })));
+                  const batchRes = await Promise.all(promises);
+                  pageResults = [...pageResults, ...batchRes.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))];
+                  await new Promise(r => setTimeout(r, WAIT_TIME));
+              }
+
+              totalResults = [...totalResults, ...pageResults];
+              
+              await updateSessionStatus(sessId, 'processing', page, totalResults);
+              
+              updateState({ 
+                  results: totalResults,
+                  progress: (totalResults.length / checkRange) * 100
+              });
+
+              if (totalResults.length >= checkRange) break;
+              
+              await new Promise(r => setTimeout(r, 1000));
+              page++;
+          }
+
+          if (!stopRef.current) {
+              await updateSessionStatus(sessId, 'completed', page - 1, totalResults);
+              addToast('全チェック完了', 'success');
+              setUrlStep('result');
+          }
+
+      } catch (e) {
+          addToast(e.message, 'error');
+          await updateSessionStatus(sessId, 'aborted', page - 1, totalResults);
+      } finally {
+          updateState({ isProcessing: false });
+      }
+  };
+
   const handleStart = async (resumeSession = null) => {
       if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
       
@@ -674,108 +767,16 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       setSessionId(currentSessionId);
       updateState({ results: initialResults });
       
-      // Start the loop process
-      // In a real app, this should be a useEffect or separate worker to persist across tab changes fully (if unmounted).
-      // Since we lifted state to App, App stays mounted. We need to invoke the runner which is defined in App or passed down.
-      // HERE IS THE KEY: The runner function `runUrlCheckLoop` is defined inside `UrlSearchInner`? No, it was inside `UrlSearchView`.
-      // `UrlSearchView` is rendered by `App`. If `activeTab` changes, `UrlSearchView` unmounts, and the loop stops?
-      // YES. That's the issue with the previous code.
-      
-      // To fix this, the Loop must be initiated from `App` and `UrlSearchView` just displays state.
-      // But refactoring that is huge.
-      // WORKAROUND: I will move `runUrlCheckLoop` logic to a `useEffect` inside `App` or a custom hook that depends on a "running" state in `App`.
-      
-      // Actually, let's cheat slightly: We will HIDE the view with CSS instead of unmounting it when switching tabs.
-      // This keeps the component mounted and the loop running.
+      await runUrlCheckLoop(pageStart, currentSessionId, initialResults);
   };
-  
-  // Note: The proper fix for background running is keeping components mounted.
-  // I will change the App render logic to use `display: none` style for tabs instead of conditional rendering.
-  
-  return (
-     <UrlSearchInner 
-        urlStep={urlStep} setUrlStep={setUrlStep}
-        shopMeta={shopMeta}
-        checkRange={checkRange} setCheckRange={setCheckRange}
-        targetUrl={targetUrl}
-        updateState={updateState}
-        fetchShopInfo={fetchShopInfo}
-        handleStart={handleStart}
-        handleReset={handleReset}
-        isProcessing={isProcessing}
-        status={status}
-        progress={progress}
-        results={results}
-        currentUser={currentUser}
-        previousHistory={previousHistory}
-        config={config}
-        runLoop={async (startP, sessId, currentResults) => {
-             // Logic reused from previous step but passed here or defined here?
-             // Redefining loop logic here for simplicity as it needs closure access to setters
-             let allProducts = [];
-             let page = startP;
-             let totalResults = [...currentResults];
-             const neededPages = Math.ceil(checkRange / 30); 
 
-             try {
-                while (page <= neededPages) {
-                    if (stopRef.current) {
-                        await updateSessionStatus(sessId, 'paused', page - 1, totalResults);
-                        updateState({ status: '中断しました' });
-                        break;
-                    }
-                    updateState({ status: `データ取得中... (${page}ページ目)` });
-                    const apiUrl = new URL('/api/rakuten', window.location.origin);
-                    apiUrl.searchParams.append('shopUrl', targetUrl);
-                    apiUrl.searchParams.append('appId', config.rakutenAppId);
-                    apiUrl.searchParams.append('page', page.toString());
-                    const res = await fetch(apiUrl.toString());
-                    if (!res.ok) break;
-                    const data = await res.json();
-                    if (!data.products || data.products.length === 0) break;
-                    
-                    updateState({ status: `AI分析中... (${page}ページ目)` });
-                    const pageProducts = data.products.map(p => ({ productName: p.name, sourceFile: targetUrl, imageUrl: p.imageUrl, itemUrl: p.url }));
-                    const BATCH_SIZE = isHighSpeed ? 15 : 3;
-                    const WAIT_TIME = isHighSpeed ? 0 : 500;
-                    let pageResults = [];
-                    for (let i = 0; i < pageProducts.length; i += BATCH_SIZE) {
-                        if (stopRef.current) break;
-                        const batch = pageProducts.slice(i, i + BATCH_SIZE);
-                        const promises = batch.map(item => analyzeItemRisk(item, config.apiKey).then(res => ({ ...item, ...res })));
-                        const batchRes = await Promise.all(promises);
-                        pageResults = [...pageResults, ...batchRes.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))];
-                        await new Promise(r => setTimeout(r, WAIT_TIME));
-                    }
-                    totalResults = [...totalResults, ...pageResults];
-                    await updateSessionStatus(sessId, 'processing', page, totalResults);
-                    updateState({ results: totalResults, progress: (totalResults.length / (neededPages*30)) * 100 }); // approx
-                    await new Promise(r => setTimeout(r, 1000));
-                    page++;
-                }
-                if (!stopRef.current) {
-                    await updateSessionStatus(sessId, 'completed', page - 1, totalResults);
-                    addToast('全チェック完了', 'success');
-                    setUrlStep('result');
-                }
-             } catch (e) {
-                addToast(e.message, 'error');
-                await updateSessionStatus(sessId, 'aborted', page - 1, totalResults);
-             } finally {
-                updateState({ isProcessing: false });
-             }
-        }}
-     />
-  );
-};
+  const handleReset = () => {
+      setUrlStep('input');
+      updateState({ results: [], progress: 0, status: '' });
+      setShopMeta({ count: 0, shopCode: '', shopName: '' });
+  };
 
-const UrlSearchInner = ({ urlStep, setUrlStep, shopMeta, checkRange, setCheckRange, targetUrl, updateState, fetchShopInfo, handleStart, handleReset, isProcessing, status, progress, results, currentUser, previousHistory, config, runLoop }) => {
-  // Wrapper to call runLoop with params
-  // But wait, handleStart is defined in parent and calls runLoop? 
-  // No, runLoop logic was inside parent handleStart.
-  // Let's just keep it simple: The structure below assumes parent handles logic.
-  // The `runLoop` prop above is a way to inject the logic back if I refactored it out, but I kept it inside `handleStart` in previous example.
-  // The important change for "Background" is in `App` render method.
+  // --- Render Logic ---
 
   if (urlStep === 'input') {
     return (
@@ -787,7 +788,13 @@ const UrlSearchInner = ({ urlStep, setUrlStep, shopMeta, checkRange, setCheckRan
                 <p className="text-slate-500 mt-2">ショップURLを入力すると、商品数を確認してからチェックを実行できます。</p>
             </div>
             <div className="flex flex-col md:flex-row gap-4 items-center justify-center">
-                <input type="text" value={targetUrl} onChange={e => updateState({ targetUrl: e.target.value })} className="w-full md:w-2/3 px-4 py-3 border rounded-lg text-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://www.rakuten.co.jp/shop-name/" />
+                <input 
+                    type="text" 
+                    value={targetUrl} 
+                    onChange={e => updateState({ targetUrl: e.target.value })} 
+                    className="w-full md:w-2/3 px-4 py-3 border rounded-lg text-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+                    placeholder="https://www.rakuten.co.jp/shop-name/" 
+                />
                 <button onClick={fetchShopInfo} disabled={isProcessing} className="w-full md:w-auto px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2">
                    {isProcessing ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>} ショップ情報を確認
                 </button>
@@ -847,7 +854,7 @@ const UrlSearchInner = ({ urlStep, setUrlStep, shopMeta, checkRange, setCheckRan
                  <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden mb-4"><div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }}></div></div>
                  <p className="text-sm text-slate-400 font-mono">{results.length} 件完了 / {Math.round(progress)}%</p>
                  <p className="text-xs text-slate-400 mt-2">※他の画面に移動しても処理は継続されます。</p>
-                 <button onClick={() => handleReset()} className="mt-8 text-slate-400 hover:text-red-500 text-sm underline">中断して保存</button>
+                 <button onClick={() => stopRef.current = true} className="mt-8 text-slate-400 hover:text-red-500 text-sm underline">中断して保存</button>
              </div>
           </div>
       );
@@ -1039,25 +1046,6 @@ const SettingsView = ({ config, setConfig, addToast, initFirebase }) => {
       </div>
     </div>
   );
-};
-
-const updateSessionStatus = async (db, sessId, status, lastPage, details) => {
-  if (!db || !sessId) return;
-  try {
-      const summary = {
-          total: details.length,
-          high: details.filter(r => r.risk === '高' || r.risk === 'High').length,
-          medium: details.filter(r => r.risk === '中' || r.risk === 'Medium').length,
-          critical: details.filter(r => r.isCritical).length
-      };
-      await updateDoc(doc(db, 'check_sessions', sessId), {
-          status,
-          lastPage,
-          summary,
-          details: details,
-          updatedAt: serverTimestamp()
-      });
-  } catch(e) { console.error("Update Error", e); }
 };
 
 // App Container
