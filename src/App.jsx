@@ -5,13 +5,14 @@ import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, se
 
 /**
  * ============================================================================
- * System Configuration
+ * System Configuration & Utilities
  * ============================================================================
  */
 const APP_CONFIG = {
-  FIXED_PASSWORD: 'admin123', // 初期管理者パスワード
+  FIXED_PASSWORD: 'admin123',
   API_TIMEOUT: 15000,
-  RETRY_LIMIT: 5
+  RETRY_LIMIT: 5,
+  VERSION: '3.1.0-PRO'
 };
 
 // --- Utility: CSV Parser ---
@@ -109,12 +110,16 @@ async function analyzeItemRisk(itemData, apiKey, retryCount = 0) {
   }
 }
 
-// --- UI Components ---
+/**
+ * ============================================================================
+ * UI Components
+ * ============================================================================
+ */
 
 const ToastContainer = ({ toasts, removeToast }) => (
-  <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+  <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
     {toasts.map((toast) => (
-      <div key={toast.id} className={`min-w-[300px] p-4 rounded-lg shadow-lg text-white flex justify-between items-center animate-in slide-in-from-right fade-in duration-300 ${toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-green-600' : 'bg-blue-600'}`}>
+      <div key={toast.id} className={`pointer-events-auto min-w-[300px] p-4 rounded-lg shadow-lg text-white flex justify-between items-center animate-in slide-in-from-right fade-in duration-300 ${toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-green-600' : 'bg-blue-600'}`}>
         <span className="text-sm font-medium">{toast.message}</span>
         <button onClick={() => removeToast(toast.id)}><X className="w-4 h-4 opacity-80 hover:opacity-100" /></button>
       </div>
@@ -162,12 +167,10 @@ const LoginView = ({ onLogin }) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // 入力値の前後の空白を削除して送信
       await onLogin(id.trim(), pass.trim());
     } catch (e) {
       console.error(e);
     } finally {
-      // 成功しても失敗しても必ずローディングを止める（これがないとグルグルし続ける）
       setLoading(false);
     }
   };
@@ -201,7 +204,6 @@ const LoginView = ({ onLogin }) => {
             {loading && <Loader2 className="w-4 h-4 animate-spin" />} ログイン
           </button>
         </form>
-        {/* クレデンシャル表示を削除しました */}
       </div>
     </div>
   );
@@ -267,24 +269,21 @@ const DashboardView = ({ historyData, onNavigate }) => {
   );
 };
 
-const UrlSearchView = ({ config, db, currentUser, addToast }) => {
-  const [targetUrl, setTargetUrl] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [results, setResults] = useState([]);
-  const [status, setStatus] = useState('');
-  const [maxPages, setMaxPages] = useState(5);
-  const stopRef = useRef(false);
+// --- Modified UrlSearchView to accept State Props ---
+const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef }) => {
+  // Destructure from state prop instead of local useState
+  const { targetUrl, results, isProcessing, progress, status, maxPages } = state;
+  
+  // Helper to update state
+  const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
 
   const handleSearch = async () => {
     if (!config.rakutenAppId) return addToast('楽天アプリIDが設定されていません', 'error');
     if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
     if (!targetUrl) return addToast('URLを入力してください', 'error');
 
-    setIsProcessing(true);
-    setResults([]);
+    updateState({ isProcessing: true, results: [], status: 'データ取得開始...', progress: 0 });
     stopRef.current = false;
-    setStatus('データ取得開始...');
 
     let allProducts = [];
     let page = 1;
@@ -293,7 +292,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
     try {
       while (page <= maxPages && page <= totalPages) {
         if (stopRef.current) break;
-        setStatus(`データ取得中... (${page}ページ目完了 / 現在${allProducts.length}件)`);
+        updateState({ status: `データ取得中... (${page}ページ目完了 / 現在${allProducts.length}件)` });
         
         const apiUrl = new URL('/api/rakuten', window.location.origin);
         apiUrl.searchParams.append('shopUrl', targetUrl);
@@ -321,7 +320,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
       }
 
       if (allProducts.length > 0) {
-        setStatus(`AI分析開始... (全${allProducts.length}件)`);
+        updateState({ status: `AI分析開始... (全${allProducts.length}件)` });
         let processedCount = 0;
         
         const BATCH_SIZE = 3;
@@ -342,22 +341,28 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
             }
           });
 
-          setResults(prev => [...prev, ...batchResults.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))]);
+          // Use functional update to append results
+          setState(prev => ({
+            ...prev,
+            results: [...prev.results, ...batchResults.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))],
+            progress: ((processedCount + batch.length) / allProducts.length) * 100
+          }));
+          
           processedCount += batch.length;
-          setProgress((processedCount / allProducts.length) * 100);
           await new Promise(r => setTimeout(r, 500)); 
         }
         addToast('チェックが完了しました', 'success');
-        setStatus('完了');
+        updateState({ status: '完了' });
       }
     } catch (e) {
       addToast(e.message, 'error');
-      setStatus('エラー停止');
+      updateState({ status: 'エラー停止' });
     } finally {
-      setIsProcessing(false);
+      updateState({ isProcessing: false });
     }
   };
 
+  // CSV Download
   const downloadCsv = () => {
     const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
     let csvContent = "商品名,リスク,危険度,理由,担当者,商品URL,日時\n";
@@ -388,10 +393,10 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
         </div>
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
-            <input type="text" value={targetUrl} onChange={e => setTargetUrl(e.target.value)} className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://www.rakuten.co.jp/..." />
+            <input type="text" value={targetUrl} onChange={e => updateState({ targetUrl: e.target.value })} className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://www.rakuten.co.jp/..." />
           </div>
           <div className="w-full md:w-40">
-            <select value={maxPages} onChange={e => setMaxPages(Number(e.target.value))} className="w-full h-12 px-3 border rounded-lg bg-white">
+            <select value={maxPages} onChange={e => updateState({ maxPages: Number(e.target.value) })} className="w-full h-12 px-3 border rounded-lg bg-white">
               <option value="5">5ページ (150件)</option>
               <option value="34">全件 (最大)</option>
             </select>
@@ -445,49 +450,67 @@ const UrlSearchView = ({ config, db, currentUser, addToast }) => {
   );
 };
 
-const CsvSearchView = ({ config, db, currentUser, addToast }) => {
-  const [files, setFiles] = useState([]);
-  const [results, setResults] = useState([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const stopRef = useRef(false);
-  const [progress, setProgress] = useState(0);
+const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef }) => {
+  const { files, results, isProcessing, progress } = state;
+  const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
+
+  const [encoding, setEncoding] = useState('Shift_JIS');
+  const [targetColIndex, setTargetColIndex] = useState(0);
+  const [headers, setHeaders] = useState([]);
 
   const handleFileUpload = async (e) => {
     const uploadedFiles = e.target.files ? Array.from(e.target.files) : [];
     if (uploadedFiles.length === 0) return;
-    setFiles(uploadedFiles);
-    setResults([]);
+    updateState({ files: uploadedFiles, results: [] });
     
-    let combinedData = [];
-    for (let i = 0; i < uploadedFiles.length; i++) {
-      try {
-        const text = await readFileAsText(uploadedFiles[i], 'Shift_JIS');
-        const parsed = parseCSV(text);
-        if (parsed.length > 1) {
-          const headers = parsed[0];
-          const nameIdx = headers.findIndex(h => h.includes('商品名') || h.includes('Name'));
-          const rows = parsed.slice(1).map(row => ({ productName: row[nameIdx !== -1 ? nameIdx : 0], imageUrl: null, sourceFile: uploadedFiles[i].name }));
-          combinedData = [...combinedData, ...rows];
-        }
-      } catch (e) {
-        addToast(`${uploadedFiles[i].name}の読み込みに失敗`, 'error');
+    // Parse first file to get headers
+    try {
+      const text = await readFileAsText(uploadedFiles[0], encoding);
+      const parsed = parseCSV(text);
+      if (parsed.length > 0) {
+        setHeaders(parsed[0]);
+        const nameIdx = parsed[0].findIndex(h => h.includes('商品名') || h.includes('Name'));
+        if(nameIdx !== -1) setTargetColIndex(nameIdx);
       }
-    }
-    // Start check
-    if (combinedData.length > 0) startCheck(combinedData);
+    } catch(e) {}
   };
 
-  const startCheck = async (items) => {
+  const startCheck = async () => {
     if (!config.apiKey) return addToast('APIキーが設定されていません', 'error');
-    setIsProcessing(true);
+    if (files.length === 0) return;
+
+    updateState({ isProcessing: true });
     stopRef.current = false;
     let processed = 0;
-    
+    let totalItems = 0;
+    let allData = [];
+
+    // Load all data
+    for (let file of files) {
+      try {
+        const text = await readFileAsText(file, encoding);
+        const parsed = parseCSV(text);
+        if (parsed.length > 1) {
+          const rows = parsed.slice(1).map(row => ({ 
+            productName: row[targetColIndex], 
+            imageUrl: null, 
+            sourceFile: file.name 
+          }));
+          allData = [...allData, ...rows];
+        }
+      } catch (e) { addToast(`${file.name} 読込失敗`, 'error'); }
+    }
+    totalItems = allData.length;
+
     const BATCH = 3;
-    for(let i=0; i<items.length; i+=BATCH) {
+    for(let i=0; i<allData.length; i+=BATCH) {
       if(stopRef.current) break;
-      const batch = items.slice(i, i+BATCH);
-      const promises = batch.map(item => analyzeItemRisk(item, config.apiKey).then(res => ({...item, ...res})));
+      const batch = allData.slice(i, i+BATCH);
+      const promises = batch.map(item => 
+        item.productName ? analyzeItemRisk(item, config.apiKey).then(res => ({...item, ...res})) 
+                         : Promise.resolve({...item, risk_level: '低', reason: '-'})
+      );
+      
       const resBatch = await Promise.all(promises);
       
       resBatch.forEach(res => {
@@ -496,23 +519,45 @@ const CsvSearchView = ({ config, db, currentUser, addToast }) => {
         }
       });
       
-      setResults(prev => [...prev, ...resBatch.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))]);
+      // Functional update for array
+      setState(prev => ({
+        ...prev,
+        results: [...prev.results, ...resBatch.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))],
+        progress: ((processed + batch.length) / totalItems) * 100
+      }));
+      
       processed += batch.length;
-      setProgress((processed / items.length)*100);
       await new Promise(r => setTimeout(r, 200));
     }
-    setIsProcessing(false);
+    updateState({ isProcessing: false });
     addToast('CSVチェック完了', 'success');
   };
 
   return (
     <div className="space-y-6 animate-in fade-in">
-      <div className="bg-white p-12 rounded-xl border border-slate-200 border-dashed text-center hover:bg-slate-50 transition-colors cursor-pointer relative w-full">
-        <input type="file" multiple accept=".csv" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isProcessing} />
-        <FolderOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-        <h3 className="text-lg font-bold text-slate-700">CSVファイルをドラッグ＆ドロップ</h3>
-        <p className="text-slate-400">またはクリックして選択 (Shift-JIS対応)</p>
-        {isProcessing && <div className="mt-4 text-blue-600 font-bold">処理中... {Math.round(progress)}%</div>}
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4 w-full">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1 border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:bg-slate-50 transition-colors cursor-pointer relative">
+            <input type="file" multiple accept=".csv" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} disabled={isProcessing} />
+            <FolderOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-bold text-slate-700">CSVファイルをドラッグ＆ドロップ</h3>
+            <p className="text-slate-400">またはクリックして選択 (Shift-JIS対応)</p>
+            {files.length > 0 && <div className="mt-2 font-bold text-blue-600">{files.length}ファイル選択中</div>}
+          </div>
+          <div className="w-64 space-y-2">
+            <select value={encoding} onChange={e => setEncoding(e.target.value)} className="w-full p-2 border rounded bg-white"><option value="Shift_JIS">Shift_JIS (楽天)</option><option value="UTF-8">UTF-8 (一般)</option></select>
+            <select value={targetColIndex} onChange={e => setTargetColIndex(Number(e.target.value))} className="w-full p-2 border rounded bg-white" disabled={headers.length === 0}>
+              {headers.length === 0 && <option>カラム未選択</option>}
+              {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+            </select>
+          </div>
+        </div>
+        {isProcessing && <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all duration-300" style={{width: `${progress}%`}}></div></div>}
+        {!isProcessing ? (
+          <button onClick={startCheck} disabled={files.length === 0} className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold rounded-lg shadow-sm">CSVチェック開始</button>
+        ) : (
+          <button onClick={() => {stopRef.current = true;}} className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow-sm">停止</button>
+        )}
       </div>
       {results.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
@@ -617,6 +662,13 @@ export default function App() {
 
   const [historyData, setHistoryData] = useState([]);
   const [userList, setUserList] = useState([]);
+
+  // --- Lifted State for Persistent Tabs ---
+  const [urlSearchState, setUrlSearchState] = useState({ targetUrl: '', results: [], isProcessing: false, progress: 0, status: '', maxPages: 5 });
+  const urlSearchStopRef = useRef(false);
+
+  const [csvSearchState, setCsvSearchState] = useState({ files: [], results: [], isProcessing: false, progress: 0 });
+  const csvSearchStopRef = useRef(false);
 
   const addToast = (message, type = 'info') => {
     const id = Date.now();
@@ -739,8 +791,8 @@ export default function App() {
 
         <main className="flex-1 overflow-y-auto p-6 w-full">
           {activeTab === 'dashboard' && <DashboardView historyData={historyData} onNavigate={setActiveTab} />}
-          {activeTab === 'url' && <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} />}
-          {activeTab === 'checker' && <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} />}
+          {activeTab === 'url' && <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={urlSearchState} setState={setUrlSearchState} stopRef={urlSearchStopRef} />}
+          {activeTab === 'checker' && <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={csvSearchState} setState={setCsvSearchState} stopRef={csvSearchStopRef} />}
           {activeTab === 'history' && <HistoryView data={historyData} />}
           {activeTab === 'users' && <UserManagementView db={db} userList={userList} addToast={addToast} />}
           {activeTab === 'settings' && <SettingsView config={config} setConfig={setConfig} addToast={addToast} initFirebase={initFirebase} />}
