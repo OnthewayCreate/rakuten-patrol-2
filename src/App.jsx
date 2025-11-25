@@ -367,7 +367,8 @@ export default function App() {
     const isCritical = item.isCritical;
 
     if (isCritical) {
-        return <span className="px-3 py-1 rounded-full text-sm font-bold bg-purple-600 text-white flex items-center justify-center gap-1 shadow-sm animate-pulse"><Siren className="w-4 h-4"/> 危険信号</span>;
+        // 文言を修正
+        return <span className="px-3 py-1 rounded-full text-sm font-bold bg-purple-600 text-white flex items-center justify-center gap-1 shadow-sm animate-pulse"><Siren className="w-4 h-4"/> 重大な疑い (要即時対応)</span>;
     }
     if (risk === '高' || risk === 'High') return <span className="px-3 py-1 rounded-full text-sm font-bold bg-red-100 text-red-700 border border-red-200">高 (危険)</span>;
     if (risk === '中' || risk === 'Medium') return <span className="px-3 py-1 rounded-full text-sm font-bold bg-yellow-100 text-yellow-700 border border-yellow-200">中 (要確認)</span>;
@@ -506,7 +507,7 @@ export default function App() {
                             )}
                           </td>
                           <td className="p-4 align-top text-slate-700 leading-relaxed">
-                            {item.isCritical && <div className="text-xs font-bold text-red-600 mb-1 flex items-center gap-1"><Siren className="w-3 h-3"/> 警察沙汰・逮捕リスクあり</div>}
+                            {item.isCritical && <div className="text-xs font-bold text-red-600 mb-1 flex items-center gap-1"><Siren className="w-3 h-3"/> 重大な権利侵害の疑い (要即時対応)</div>}
                             {item.reason}
                           </td>
                         </tr>
