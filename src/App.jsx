@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
 
+// ==========================================
+// 定数定義
+// ==========================================
 const FIXED_PASSWORD = 'admin123'; 
 
-// ユーティリティ: CSVパース
+// ==========================================
+// 1. ユーティリティ関数
+// ==========================================
 const parseCSV = (text) => {
   const rows = [];
   let currentRow = [];
@@ -39,7 +44,33 @@ const readFileAsText = (file, encoding) => {
   });
 };
 
-// API呼び出しラッパー
+// ★重要: FirebaseのConfig文字列を柔軟にパースする関数
+const parseFirebaseConfig = (input) => {
+  if (!input) return null;
+  try {
+    // 1. 素直にJSONパースを試みる
+    return JSON.parse(input);
+  } catch (e) {
+    try {
+      // 2. JavaScriptオブジェクト形式 (キーにクォートがない) の場合、JSON形式に変換してパース
+      // const firebaseConfig = { ... } の部分だけ抜き出すなどの処理はユーザーに任せるが
+      // 中身の { apiKey: "..." } を { "apiKey": "..." } に変換する
+      const jsonStr = input
+        .replace(/const\s+firebaseConfig\s*=\s*/, '') // 変数宣言があれば消す
+        .replace(/;\s*$/, '') // 末尾のセミコロンがあれば消す
+        .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ') // キーをダブルクォートで囲む
+        .replace(/'/g, '"'); // 値のシングルクォートをダブルクォートに
+      return JSON.parse(jsonStr);
+    } catch (e2) {
+      console.error("Config Parse Error", e2);
+      return null;
+    }
+  }
+};
+
+// ==========================================
+// 2. Gemini API呼び出し関数
+// ==========================================
 async function checkIPRisk(itemData, apiKey, retryCount = 0) {
   try {
     const response = await fetch('/api/analyze', {
@@ -53,7 +84,7 @@ async function checkIPRisk(itemData, apiKey, retryCount = 0) {
     });
 
     if (response.status === 429 || response.status === 504) {
-      if (retryCount < 5) { // リトライ回数を強化
+      if (retryCount < 5) {
         const waitTime = Math.pow(2, retryCount + 1) * 1000 + (Math.random() * 1000);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         return checkIPRisk(itemData, apiKey, retryCount + 1);
@@ -74,11 +105,15 @@ async function checkIPRisk(itemData, apiKey, retryCount = 0) {
   }
 }
 
+// ==========================================
+// 3. メインコンポーネント
+// ==========================================
 export default function App() {
-  // 認証・ユーザー情報
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [inputPassword, setInputPassword] = useState('');
-  const [userName, setUserName] = useState(''); // 担当者名
+  // 認証
+  const [currentUser, setCurrentUser] = useState(null); 
+  const [loginId, setLoginId] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [isLoginProcessing, setIsLoginProcessing] = useState(false);
   
   // 設定
   const [apiKey, setApiKey] = useState('');
@@ -94,6 +129,7 @@ export default function App() {
   const [targetColIndex, setTargetColIndex] = useState(-1);
   const [results, setResults] = useState([]);
   const [historyData, setHistoryData] = useState([]);
+  const [userList, setUserList] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [encoding, setEncoding] = useState('Shift_JIS');
@@ -103,18 +139,16 @@ export default function App() {
   const [urlStatus, setUrlStatus] = useState('');
   const [maxPages, setMaxPages] = useState(5);
 
+  const [newUser, setNewUser] = useState({ name: '', password: '', role: 'staff' });
   const stopRef = useRef(false);
 
-  // 初期化
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
     const savedRakutenId = localStorage.getItem('rakuten_app_id');
     const savedFbConfig = localStorage.getItem('firebase_config');
-    const savedUser = localStorage.getItem('app_user_name');
     
     if (savedKey) setApiKey(savedKey);
     if (savedRakutenId) setRakutenAppId(savedRakutenId);
-    if (savedUser) setUserName(savedUser);
     if (savedFbConfig) {
       setFirebaseConfigJson(savedFbConfig);
       initFirebase(savedFbConfig);
@@ -122,33 +156,105 @@ export default function App() {
   }, []);
 
   const initFirebase = (configStr) => {
+    const config = parseFirebaseConfig(configStr);
+    if (!config) {
+      console.error("Firebase Config Invalid");
+      return;
+    }
+
     try {
-      const config = JSON.parse(configStr);
-      const app = initializeApp(config);
+      // 二重初期化防止
+      let app;
+      try {
+        app = initializeApp(config);
+      } catch (e) {
+        // 既に初期化されている場合は既存のものを取得するロジックが必要だが、
+        // ここでは簡易的にリロードで解決する前提、またはエラーを無視
+        // 本来は getApp() を使うが、CDN/Vite構成のため簡略化
+        app = initializeApp(config, "SECONDARY"); // 名前を変えて回避
+      }
+      
       const firestore = getFirestore(app);
       setDb(firestore);
-      // 履歴をリアルタイム取得
+      
       const q = query(collection(firestore, 'ip_checks'), orderBy('createdAt', 'desc'), limit(100));
       onSnapshot(q, (snapshot) => {
         const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setHistoryData(docs);
       });
+
+      onSnapshot(collection(firestore, 'app_users'), (snapshot) => {
+        const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setUserList(users);
+      }, (error) => {
+         // 権限エラーなどで落ちないように
+         console.log("User list sync error (likely permission)", error);
+      });
+
     } catch (e) {
       console.error("Firebase Init Error", e);
     }
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (inputPassword === FIXED_PASSWORD) {
-      if (!userName.trim()) {
-        alert("担当者名を入力してください（履歴に残ります）");
-        return;
+    
+    // 初期管理者
+    if (loginId === 'admin' && loginPass === 'admin123') {
+      setCurrentUser({ name: '管理者(初期)', role: 'admin' });
+      return;
+    }
+
+    if (!db) {
+      alert("Firebaseが設定されていません。まずは初期管理者(admin/admin123)でログインして設定を行ってください。");
+      return;
+    }
+
+    setIsLoginProcessing(true);
+    try {
+      const q = query(collection(db, 'app_users'), where('loginId', '==', loginId), where('password', '==', loginPass));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userData = querySnapshot.docs[0].data();
+        setCurrentUser({ name: userData.name, role: userData.role });
+      } else {
+        alert("IDまたはパスワードが違います");
       }
-      localStorage.setItem('app_user_name', userName);
-      setIsAuthenticated(true);
-    } else {
-      alert("パスワードが違います");
+    } catch (error) {
+      alert("ログインエラー: " + error.message);
+    } finally {
+      setIsLoginProcessing(false);
+    }
+  };
+
+  const handleAddUser = async () => {
+    if (!db) return;
+    if (!newUser.name || !newUser.password || !newUser.loginId) {
+      alert("すべての項目を入力してください");
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'app_users'), {
+        name: newUser.name,
+        loginId: newUser.loginId,
+        password: newUser.password,
+        role: newUser.role,
+        createdAt: serverTimestamp()
+      });
+      setNewUser({ name: '', loginId: '', password: '', role: 'staff' });
+      alert("ユーザーを追加しました");
+    } catch (e) {
+      alert("追加エラー: " + e.message);
+    }
+  };
+
+  const handleDeleteUser = async (id) => {
+    if (!confirm("このユーザーを削除しますか？")) return;
+    try {
+      await deleteDoc(doc(db, 'app_users', id));
+    } catch (e) {
+      alert("削除エラー: " + e.message);
     }
   };
 
@@ -163,7 +269,6 @@ export default function App() {
   const saveToHistory = async (item) => {
     if (!db) return;
     try {
-      // 「高」「中」または「危険フラグ」があるものを保存
       if (item.risk === '高' || item.risk === '中' || item.isCritical) {
         await addDoc(collection(db, 'ip_checks'), {
           productName: item.productName,
@@ -172,7 +277,7 @@ export default function App() {
           sourceFile: item.sourceFile,
           imageUrl: item.imageUrl || '',
           isCritical: item.is_critical || false,
-          pic: userName, // 担当者
+          pic: currentUser?.name || '不明',
           createdAt: serverTimestamp()
         });
       }
@@ -208,7 +313,6 @@ export default function App() {
     setCsvData(combinedData);
   };
 
-  // --- 楽天API検索 (ページネーション対応) ---
   const handleRakutenSearch = async () => {
     if (!targetUrl) return alert("ショップURLを入力してください");
     if (!rakutenAppId) return alert("設定画面で「楽天アプリID」を入力してください");
@@ -265,7 +369,6 @@ export default function App() {
 
         allProducts = [...allProducts, ...pageProducts];
         
-        // 楽天API制限考慮 (1秒待機)
         await new Promise(resolve => setTimeout(resolve, 1000));
         currentPage++;
       }
@@ -283,15 +386,12 @@ export default function App() {
     }
   };
 
-  // --- 共通チェックプロセス (高速化・並列処理) ---
   const startCheckProcess = async (dataList, isApiMode = false) => {
     if (!apiKey) return alert("設定画面でAPIキーを入力してください");
     setIsProcessing(true);
     stopRef.current = false;
     let currentIndex = 0;
     const total = dataList.length;
-    
-    // 高速モード: 5並列 / 通常: 1並列 (画像解析は重いため控えめに)
     const BATCH_SIZE = isHighSpeed ? 5 : 1; 
     
     while (currentIndex < total) {
@@ -319,7 +419,7 @@ export default function App() {
           ...itemData,
           id: i, 
           risk: res.risk_level, 
-          isCritical: res.is_critical, // 危険フラグ
+          isCritical: res.is_critical, 
           reason: res.reason
         })));
       }
@@ -331,7 +431,6 @@ export default function App() {
       setProgress(Math.round((batchEnd / total) * 100));
       currentIndex = batchEnd;
       
-      // 待機時間調整 (高速モードなら短縮)
       const waitTime = isHighSpeed ? 200 : 2000;
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
@@ -350,7 +449,8 @@ export default function App() {
       const itemUrl = `"${(r.itemUrl || '').replace(/"/g, '""')}"`;
       const date = r.createdAt ? new Date(r.createdAt.seconds * 1000).toLocaleString() : new Date().toLocaleString();
       const critical = r.isCritical ? "★危険★" : "";
-      csvContent += `${name},${r.risk},${critical},${reason},${userName},${file},${itemUrl},${date}\n`;
+      const pic = r.pic || currentUser?.name || '';
+      csvContent += `${name},${r.risk},${critical},${reason},${pic},${file},${itemUrl},${date}\n`;
     });
     const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -361,13 +461,11 @@ export default function App() {
     link.click(); document.body.removeChild(link);
   };
 
-  // バッジ表示ロジック
   const getRiskBadge = (item) => {
     const risk = item.risk;
     const isCritical = item.isCritical;
 
     if (isCritical) {
-        // 文言を修正
         return <span className="px-3 py-1 rounded-full text-sm font-bold bg-purple-600 text-white flex items-center justify-center gap-1 shadow-sm animate-pulse"><Siren className="w-4 h-4"/> 重大な疑い (要即時対応)</span>;
     }
     if (risk === '高' || risk === 'High') return <span className="px-3 py-1 rounded-full text-sm font-bold bg-red-100 text-red-700 border border-red-200">高 (危険)</span>;
@@ -375,8 +473,7 @@ export default function App() {
     return <span className="px-3 py-1 rounded-full text-sm font-bold bg-green-100 text-green-700 border border-green-200">問題なし</span>;
   };
 
-  // --- ログイン画面 ---
-  if (!isAuthenticated) {
+  if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full space-y-6">
@@ -386,22 +483,26 @@ export default function App() {
             <p className="text-sm text-slate-500 mt-2">弁理士AIによる権利侵害チェック</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
+            <div className="bg-blue-50 p-3 rounded text-xs text-blue-800">
+              <strong>初回ログイン:</strong> <br/>ID: <code>admin</code> / Pass: <code>admin123</code>
+            </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">担当者名 <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-bold text-slate-700 mb-1">ログインID</label>
               <div className="relative">
                 <User className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
-                <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="山田 太郎" required />
+                <input type="text" value={loginId} onChange={(e) => setLoginId(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="IDを入力" required />
               </div>
-              <p className="text-xs text-slate-500 mt-1">※作業履歴に記録されます</p>
             </div>
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">パスワード</label>
               <div className="relative">
                 <Lock className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
-                <input type="password" value={inputPassword} onChange={(e) => setInputPassword(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="パスワード" />
+                <input type="password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="パスワード" required />
               </div>
             </div>
-            <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-md">ログインして開始</button>
+            <button type="submit" disabled={isLoginProcessing} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-md flex justify-center items-center gap-2">
+              {isLoginProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} ログイン
+            </button>
           </form>
         </div>
       </div>
@@ -417,23 +518,31 @@ export default function App() {
             <span>Rakuten Patrol</span>
           </div>
           <div className="flex items-center gap-1">
-            {['url', 'checker', 'history', 'settings'].map(tab => (
+            {['url', 'checker', 'history'].map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}>
                 {tab === 'url' && '楽天URL検索'}
                 {tab === 'checker' && 'CSV検索'}
                 {tab === 'history' && '履歴'}
-                {tab === 'settings' && '設定'}
               </button>
             ))}
+            
+            {currentUser.role === 'admin' && (
+              <>
+                <button onClick={() => setActiveTab('users')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'users' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}>ユーザー管理</button>
+                <button onClick={() => setActiveTab('settings')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'settings' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100'}`}>設定</button>
+              </>
+            )}
+
             <div className="w-px h-6 bg-slate-300 mx-2"></div>
-            <span className="text-xs text-slate-500 mr-2 font-medium"><User className="w-3 h-3 inline mr-1"/>{userName}</span>
-            <button onClick={() => setIsAuthenticated(false)} className="p-2 text-slate-400 hover:text-red-500 rounded-full hover:bg-red-50"><LogOut className="w-5 h-5" /></button>
+            <span className="text-xs text-slate-500 mr-2 font-medium flex items-center gap-1">
+              <User className="w-3 h-3"/> {currentUser.name} ({currentUser.role === 'admin' ? '管理者' : '担当者'})
+            </span>
+            <button onClick={() => setCurrentUser(null)} className="p-2 text-slate-400 hover:text-red-500 rounded-full hover:bg-red-50"><LogOut className="w-5 h-5" /></button>
           </div>
         </div>
       </nav>
 
       <main className="flex-1 w-full px-6 py-6">
-        {/* --- URL検索 --- */}
         {activeTab === 'url' && (
           <div className="space-y-6 w-full animate-in fade-in">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
@@ -507,7 +616,7 @@ export default function App() {
                             )}
                           </td>
                           <td className="p-4 align-top text-slate-700 leading-relaxed">
-                            {item.isCritical && <div className="text-xs font-bold text-red-600 mb-1 flex items-center gap-1"><Siren className="w-3 h-3"/> 重大な権利侵害の疑い (要即時対応)</div>}
+                            {item.isCritical && <div className="text-xs font-bold text-red-600 mb-1 flex items-center gap-1"><Siren className="w-3 h-3"/> 重大な疑い (要即時対応)</div>}
                             {item.reason}
                           </td>
                         </tr>
@@ -520,49 +629,10 @@ export default function App() {
           </div>
         )}
 
-        {/* --- 履歴画面 --- */}
-        {activeTab === 'history' && (
-          <div className="space-y-6 animate-in fade-in w-full">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><History className="w-6 h-6 text-blue-600" /> チェック履歴 (最新100件)</h2>
-                {!db && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded">Firebase未接続</span>}
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-600 font-bold">
-                    <tr>
-                      <th className="p-4 w-40">日時</th>
-                      <th className="p-4 w-32">担当者</th>
-                      <th className="p-4 w-32 text-center">判定</th>
-                      <th className="p-4">商品名</th>
-                      <th className="p-4 w-1/3">理由</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {historyData.map((item) => (
-                      <tr key={item.id} className={`hover:bg-slate-50 ${item.isCritical ? 'bg-red-50' : ''}`}>
-                        <td className="p-4 text-slate-500 text-xs whitespace-nowrap">
-                          {item.createdAt ? new Date(item.createdAt.seconds * 1000).toLocaleString() : '-'}
-                        </td>
-                        <td className="p-4 font-medium text-slate-700 flex items-center gap-1">
-                          <User className="w-3 h-3 text-slate-400"/> {item.pic || '不明'}
-                        </td>
-                        <td className="p-4 text-center">{getRiskBadge(item)}</td>
-                        <td className="p-4 font-medium text-slate-700 line-clamp-2" title={item.productName}>{item.productName}</td>
-                        <td className="p-4 text-slate-600 text-xs">{item.reason}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* --- CSV & 設定タブ (省略なしで実装) --- */}
+        {/* --- CSV & 履歴 (既存機能) --- */}
         {activeTab === 'checker' && (
           <div className="space-y-6 animate-in fade-in w-full">
+             {/* CSV UI ... */}
              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
                 <div className="flex flex-col md:flex-row gap-4">
                   <div className="flex-1 border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:bg-slate-50 relative">
@@ -614,6 +684,106 @@ export default function App() {
           </div>
         )}
 
+        {activeTab === 'history' && (
+          <div className="space-y-6 animate-in fade-in w-full">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><History className="w-6 h-6 text-blue-600" /> チェック履歴 (最新100件)</h2>
+                {!db && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded">Firebase未接続</span>}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 text-slate-600 font-bold">
+                    <tr>
+                      <th className="p-4 w-40">日時</th>
+                      <th className="p-4 w-32">担当者</th>
+                      <th className="p-4 w-32 text-center">判定</th>
+                      <th className="p-4">商品名</th>
+                      <th className="p-4 w-1/3">理由</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {historyData.map((item) => (
+                      <tr key={item.id} className={`hover:bg-slate-50 ${item.isCritical ? 'bg-red-50' : ''}`}>
+                        <td className="p-4 text-slate-500 text-xs whitespace-nowrap">
+                          {item.createdAt ? new Date(item.createdAt.seconds * 1000).toLocaleString() : '-'}
+                        </td>
+                        <td className="p-4 font-medium text-slate-700 flex items-center gap-1">
+                          <User className="w-3 h-3 text-slate-400"/> {item.pic || '不明'}
+                        </td>
+                        <td className="p-4 text-center">{getRiskBadge(item)}</td>
+                        <td className="p-4 font-medium text-slate-700 line-clamp-2" title={item.productName}>{item.productName}</td>
+                        <td className="p-4 text-slate-600 text-xs">{item.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- ユーザー管理画面 (管理者のみ) --- */}
+        {activeTab === 'users' && currentUser.role === 'admin' && (
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 w-full max-w-4xl mx-auto animate-in fade-in">
+            <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><Users className="w-6 h-6" /> ユーザー管理</h2>
+            
+            {/* 追加フォーム */}
+            <div className="bg-slate-50 p-4 rounded-lg mb-6 flex flex-col md:flex-row gap-4 items-end">
+              <div className="flex-1 w-full">
+                <label className="text-xs font-bold text-slate-500">名前 (表示用)</label>
+                <input type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full p-2 border rounded" placeholder="例: 山田 太郎"/>
+              </div>
+              <div className="flex-1 w-full">
+                <label className="text-xs font-bold text-slate-500">ログインID</label>
+                <input type="text" value={newUser.loginId} onChange={e => setNewUser({...newUser, loginId: e.target.value})} className="w-full p-2 border rounded" placeholder="半角英数"/>
+              </div>
+              <div className="flex-1 w-full">
+                <label className="text-xs font-bold text-slate-500">パスワード</label>
+                <input type="text" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full p-2 border rounded" placeholder="パスワード"/>
+              </div>
+              <div className="w-32">
+                <label className="text-xs font-bold text-slate-500">権限</label>
+                <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})} className="w-full p-2 border rounded bg-white">
+                  <option value="staff">スタッフ</option>
+                  <option value="admin">管理者</option>
+                </select>
+              </div>
+              <button onClick={handleAddUser} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 flex items-center gap-1 whitespace-nowrap">
+                <UserPlus className="w-4 h-4" /> 追加
+              </button>
+            </div>
+
+            {/* 一覧 */}
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-100 font-bold text-slate-600">
+                <tr>
+                  <th className="p-3">名前</th>
+                  <th className="p-3">ログインID</th>
+                  <th className="p-3">パスワード</th>
+                  <th className="p-3">権限</th>
+                  <th className="p-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {userList.map(user => (
+                  <tr key={user.id} className="hover:bg-slate-50">
+                    <td className="p-3">{user.name}</td>
+                    <td className="p-3 font-mono text-slate-600">{user.loginId}</td>
+                    <td className="p-3 font-mono text-slate-400">********</td>
+                    <td className="p-3"><span className={`px-2 py-0.5 rounded text-xs ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100'}`}>{user.role}</span></td>
+                    <td className="p-3 text-right">
+                      <button onClick={() => handleDeleteUser(user.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 className="w-4 h-4"/></button>
+                    </td>
+                  </tr>
+                ))}
+                {userList.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-slate-400">ユーザーがいません</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* --- 設定画面 --- */}
         {activeTab === 'settings' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-2xl mx-auto animate-in fade-in">
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Settings className="w-6 h-6" /> 設定</h2>
