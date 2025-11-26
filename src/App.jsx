@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity, Cloud, LockKeyhole, ZapOff, Gauge, StopCircle, ImageIcon } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity, Cloud, LockKeyhole, ZapOff, Gauge, StopCircle, ImageIcon, Bot } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 
@@ -12,7 +12,7 @@ const APP_CONFIG = {
   FIXED_PASSWORD: 'admin123',
   API_TIMEOUT: 30000,
   RETRY_LIMIT: 8,
-  VERSION: '10.0.0-DesignerEdition'
+  VERSION: '10.1.1-FixBugs'
 };
 
 const parseCSV = (text) => {
@@ -185,7 +185,7 @@ const LoginView = ({ onLogin }) => {
       <div className="bg-white p-10 rounded-3xl shadow-xl max-w-sm w-full border border-slate-100">
         <div className="text-center mb-10">
           <div className="inline-flex p-5 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-2xl shadow-lg shadow-blue-200 mb-6 transform hover:scale-105 transition-transform duration-500">
-            <ShieldAlert className="w-12 h-12 text-white" />
+            <Bot className="w-12 h-12 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Rakuten Patrol <span className="text-blue-600">Pro</span></h1>
           <p className="text-sm text-slate-500 mt-3 font-medium leading-relaxed">AI弁理士による<br/>知的財産権侵害チェックシステム</p>
@@ -362,9 +362,9 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
 
                    {/* Source Info */}
                    <td className="px-6 py-5 align-top text-center">
-                      {item.source && item.source.startsWith('http') ? (
+                      {(item.source || item.sourceFile) && (item.source || item.sourceFile).startsWith('http') ? (
                         <div className="flex flex-col items-center gap-1">
-                           <a href={item.source} target="_blank" rel="noreferrer" className="p-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors" title="ショップへ">
+                           <a href={item.source || item.sourceFile} target="_blank" rel="noreferrer" className="p-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors" title="ショップへ">
                              <Store className="w-4 h-4"/>
                            </a>
                            <span className="text-[10px] text-slate-400">Shop</span>
@@ -399,7 +399,7 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
   );
 };
 
-const DashboardView = ({ sessions, onNavigate, onResume, onForceStop }) => {
+const DashboardView = ({ sessions, onNavigate, onResume, onForceStop, onInspectSession }) => {
   const [drillDownType, setDrillDownType] = useState(null); 
 
   const stats = useMemo(() => {
@@ -479,16 +479,20 @@ const DashboardView = ({ sessions, onNavigate, onResume, onForceStop }) => {
         </div>
         <div className="divide-y divide-slate-50">
           {sessions.slice(0, 5).map((session) => (
-            <div key={session.id} className="p-5 hover:bg-slate-50/80 transition-colors flex items-center justify-between group">
+            <div 
+              key={session.id} 
+              onClick={() => onInspectSession(session)}
+              className="p-5 hover:bg-slate-50/80 transition-colors flex items-center justify-between group cursor-pointer"
+            >
               <div className="flex items-center gap-5">
                 <div className={`p-3 rounded-xl ${session.type === 'url' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
                   {session.type === 'url' ? <ShoppingBag className="w-6 h-6"/> : <FileText className="w-6 h-6"/>}
                 </div>
                 <div>
                   <div className="flex items-center gap-3 mb-1">
-                    <p className="text-base font-bold text-slate-800 truncate max-w-md">{session.target || '不明なターゲット'}</p>
+                    <p className="text-base font-bold text-slate-800 truncate max-w-md group-hover:text-blue-600 transition-colors">{session.target || '不明なターゲット'}</p>
                     {session.status === 'processing' && (
-                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <div className="flex gap-2" onClick={e => e.stopPropagation()}>
                          <button onClick={() => onResume(session)} className="text-[10px] bg-blue-600 text-white px-3 py-1 rounded-full hover:bg-blue-700 transition-colors font-bold flex items-center gap-1"><Play className="w-3 h-3"/> 再開</button>
                          <button onClick={() => onForceStop(session.id)} className="text-[10px] bg-slate-200 text-slate-600 px-3 py-1 rounded-full hover:bg-red-100 hover:text-red-600 transition-colors font-bold flex items-center gap-1"><StopCircle className="w-3 h-3"/> 停止</button>
                        </div>
@@ -505,7 +509,7 @@ const DashboardView = ({ sessions, onNavigate, onResume, onForceStop }) => {
                 {session.summary?.critical > 0 && <span className="px-3 py-1 bg-purple-50 text-purple-700 text-xs font-bold rounded-lg flex items-center gap-1.5 border border-purple-100"><Siren className="w-3 h-3"/> {session.summary.critical}</span>}
                 {session.summary?.high > 0 && <span className="px-3 py-1 bg-red-50 text-red-700 text-xs font-bold rounded-lg border border-red-100">高: {session.summary.high}</span>}
                 <span className="px-3 py-1 bg-slate-50 text-slate-500 text-xs font-medium rounded-lg border border-slate-100">全: {session.summary?.total}</span>
-                <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-slate-400 ml-2"/>
+                <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-blue-400 ml-2 transition-colors"/>
               </div>
             </div>
           ))}
@@ -516,9 +520,14 @@ const DashboardView = ({ sessions, onNavigate, onResume, onForceStop }) => {
   );
 };
 
-const HistoryView = ({ sessions, onResume, onForceStop, onDelete, currentUser }) => {
+const HistoryView = ({ sessions, onResume, onForceStop, onDelete, currentUser, inspectSession }) => {
   const [selectedSession, setSelectedSession] = useState(null);
   
+  // Auto select session if passed via props
+  useEffect(() => {
+      if (inspectSession) setSelectedSession(inspectSession);
+  }, [inspectSession]);
+
   const groupedSessions = useMemo(() => {
     const groups = {};
     sessions.forEach(session => {
@@ -738,10 +747,12 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       } catch(e) { console.error("Update Error", e); }
   };
 
-  const runUrlCheckLoop = async (startP, sessId, currentResults) => {
+  const runUrlCheckLoop = async (startP, sessId, currentResults, range) => {
       let page = startP;
       let totalResults = [...currentResults];
-      const neededPages = Math.ceil(checkRange / 30); 
+      // バグ修正: rangeが未定義の場合のフォールバック
+      const targetRange = range || 30;
+      const neededPages = Math.ceil(targetRange / 30); 
 
       try {
           while (page <= neededPages) {
@@ -783,7 +794,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                   
                   updateState({ 
                       results: [...totalResults, ...pageResults],
-                      progress: ((totalResults.length + pageResults.length) / checkRange) * 100
+                      progress: ((totalResults.length + pageResults.length) / targetRange) * 100
                   });
                   
                   await new Promise(r => setTimeout(r, WAIT_TIME));
@@ -791,7 +802,8 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
 
               totalResults = [...totalResults, ...pageResults];
               await updateSessionStatus(sessId, 'processing', page, totalResults);
-              if (totalResults.length >= checkRange) break;
+              if (totalResults.length >= targetRange) break;
+              
               await new Promise(r => setTimeout(r, 1000));
               page++;
           }
@@ -810,9 +822,12 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       }
   };
 
-  const handleStart = async (resumeSession = null) => {
+  const handleStart = async (resumeSession = null, overrideRange = null) => {
       if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
       
+      // バグ修正: ボタンから渡された数値を優先的に使用する
+      const activeRange = overrideRange || checkRange;
+
       setUrlStep('processing');
       setLiveLog([]);
       updateState({ isProcessing: true, status: '準備中...', progress: 0 });
@@ -828,6 +843,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
           pageStart = (resumeSession.lastPage || 0) + 1;
           setCheckRange(3000); 
           addToast(`${pageStart}ページ目から再開します`, 'info');
+          await runUrlCheckLoop(pageStart, currentSessionId, initialResults, 3000);
       } else {
           if (db) {
               const docRef = await addDoc(collection(db, 'check_sessions'), {
@@ -845,12 +861,9 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
           }
           initialResults = [];
           pageStart = 1;
+          // 修正: activeRangeを確実に渡す
+          await runUrlCheckLoop(pageStart, currentSessionId, initialResults, activeRange);
       }
-
-      setSessionId(currentSessionId);
-      updateState({ results: initialResults });
-      
-      await runUrlCheckLoop(pageStart, currentSessionId, initialResults);
   };
 
   const handleReset = () => {
@@ -920,17 +933,17 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                   <div className="space-y-6">
                       <p className="font-bold text-slate-700 text-lg">チェック範囲を選択してください:</p>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                          <button onClick={() => { setCheckRange(30); handleStart(null); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+                          <button onClick={() => { setCheckRange(30); handleStart(null, 30); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
                               <div className="font-bold text-xl text-slate-800 mb-2 group-hover:text-blue-700">クイック</div>
                               <div className="text-blue-600 font-bold text-3xl mb-1">30 <span className="text-sm font-normal text-slate-500">件</span></div>
                               <div className="text-xs font-bold text-slate-400 bg-slate-100 inline-block px-2 py-1 rounded">所要時間: 約30秒</div>
                           </button>
-                          <button onClick={() => { setCheckRange(300); handleStart(null); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+                          <button onClick={() => { setCheckRange(300); handleStart(null, 300); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
                               <div className="font-bold text-xl text-slate-800 mb-2 group-hover:text-blue-700">スタンダード</div>
                               <div className="text-blue-600 font-bold text-3xl mb-1">300 <span className="text-sm font-normal text-slate-500">件</span></div>
                               <div className="text-xs font-bold text-slate-400 bg-slate-100 inline-block px-2 py-1 rounded">所要時間: 約5分</div>
                           </button>
-                          <button onClick={() => { setCheckRange(3000); handleStart(null); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1 relative overflow-hidden">
+                          <button onClick={() => { setCheckRange(3000); handleStart(null, 3000); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1 relative overflow-hidden">
                               {shopMeta.count > 3000 && <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">LIMIT APPLIED</div>}
                               <div className="font-bold text-xl text-slate-800 mb-2 group-hover:text-blue-700">フルスキャン</div>
                               <div className="text-blue-600 font-bold text-3xl mb-1">Max <span className="text-sm font-normal text-slate-500">3000件</span></div>
@@ -1014,10 +1027,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
 
   return null;
 };
-
-// ... (CsvSearchView, UserManagementView, SettingsView, App are same, just ensuring App calls Updated UrlSearchView) ...
-// For completeness in "overwrite all", I include the rest below unchanged or slightly adapted if needed.
-// CsvSearchView, UserManagementView, SettingsView, App (Main) logic remains valid.
 
 const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef, isHighSpeed, setIsHighSpeed }) => {
   const { files, results, isProcessing, progress } = state;
@@ -1222,6 +1231,9 @@ export default function App() {
   const csvSearchStopRef = useRef(false);
 
   const [isHighSpeed, setIsHighSpeed] = useState(false); 
+  
+  // NEW: Inspect session from Dashboard
+  const [inspectSession, setInspectSession] = useState(null);
 
   const addToast = (message, type = 'info') => {
     const id = Date.now();
@@ -1336,6 +1348,12 @@ export default function App() {
     }
   };
 
+  // Handle inspecting a session from Dashboard
+  const handleInspectSession = (session) => {
+    setInspectSession(session);
+    setActiveTab('history');
+  };
+
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
 
   return (
@@ -1386,19 +1404,19 @@ export default function App() {
         </aside>
 
         <main className="flex-1 overflow-y-auto p-6 w-full">
-          {activeTab === 'dashboard' && <DashboardView sessions={historySessions} onNavigate={setActiveTab} onResume={handleResumeSession} onForceStop={handleForceStop} />}
+          {activeTab === 'dashboard' && <DashboardView sessions={historySessions} onNavigate={setActiveTab} onResume={handleResumeSession} onForceStop={handleForceStop} onInspectSession={handleInspectSession} />}
           
-          {/* URL Search View - Force rendering but hide with CSS when inactive to persist state */}
+          {/* URL Search View */}
           <div className={activeTab === 'url' ? 'block' : 'hidden'}>
              <UrlSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={urlSearchState} setState={setUrlSearchState} stopRef={urlSearchStopRef} isHighSpeed={isHighSpeed} setIsHighSpeed={setIsHighSpeed} historySessions={historySessions} onResume={handleResumeSession} />
           </div>
 
-          {/* CSV Search View - Force rendering but hide with CSS */}
+          {/* CSV Search View */}
           <div className={activeTab === 'checker' ? 'block' : 'hidden'}>
              <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={csvSearchState} setState={setCsvSearchState} stopRef={csvSearchStopRef} isHighSpeed={isHighSpeed} setIsHighSpeed={setIsHighSpeed} />
           </div>
 
-          {activeTab === 'history' && <HistoryView sessions={historySessions} onResume={(session) => { setActiveTab('url'); setUrlSearchState(p => ({...p, resumeSession: session})); }} onForceStop={handleForceStop} onDelete={handleDeleteSession} currentUser={currentUser} />}
+          {activeTab === 'history' && <HistoryView sessions={historySessions} onResume={(session) => { setActiveTab('url'); setUrlSearchState(p => ({...p, resumeSession: session})); }} onForceStop={handleForceStop} onDelete={handleDeleteSession} currentUser={currentUser} inspectSession={inspectSession} />}
           {activeTab === 'users' && <UserManagementView db={db} userList={userList} addToast={addToast} />}
           {activeTab === 'settings' && <SettingsView config={config} setConfig={setConfig} addToast={addToast} initFirebase={initFirebase} />}
         </main>
