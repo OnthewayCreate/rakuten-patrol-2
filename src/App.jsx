@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity, Cloud, LockKeyhole } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity, Cloud, LockKeyhole, ZapOff, Gauge, StopCircle } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 
@@ -12,7 +12,7 @@ const APP_CONFIG = {
   FIXED_PASSWORD: 'admin123',
   API_TIMEOUT: 30000,
   RETRY_LIMIT: 8,
-  VERSION: '9.0.0-TeamCollab'
+  VERSION: '9.1.0-LiveList'
 };
 
 const parseCSV = (text) => {
@@ -324,12 +324,13 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
                       {item.reason}
                    </td>
                    <td className="p-3 align-top text-xs text-slate-500">
-                      {item.source && item.source.startsWith('http') ? (
-                        <a href={item.source} target="_blank" rel="noreferrer" className="text-green-700 hover:underline flex items-center gap-1">
+                      {/* ソース表示の修正：URLまたはファイル名を表示 */}
+                      {(item.source || item.sourceFile) && (item.source || item.sourceFile).startsWith('http') ? (
+                        <a href={item.source || item.sourceFile} target="_blank" rel="noreferrer" className="text-green-700 hover:underline flex items-center gap-1">
                            <Store className="w-3 h-3"/> ショップ
                         </a>
                       ) : (
-                        <span className="flex items-center gap-1"><FileText className="w-3 h-3"/> CSV</span>
+                        <span className="flex items-center gap-1 truncate max-w-[100px]"><FileText className="w-3 h-3"/> {item.source || item.sourceFile || 'CSV'}</span>
                       )}
                    </td>
                  </tr>
@@ -343,7 +344,7 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
   );
 };
 
-const DashboardView = ({ sessions, onNavigate }) => {
+const DashboardView = ({ sessions, onNavigate, onResume, onForceStop }) => {
   const [drillDownType, setDrillDownType] = useState(null); 
 
   const stats = useMemo(() => {
@@ -429,7 +430,16 @@ const DashboardView = ({ sessions, onNavigate }) => {
                   {session.type === 'url' ? <ShoppingBag className="w-5 h-5"/> : <FileText className="w-5 h-5"/>}
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-slate-800 truncate max-w-md">{session.target || '不明なターゲット'}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-slate-800 truncate max-w-md">{session.target || '不明なターゲット'}</p>
+                    {/* 状態がProcessingの場合、アクションボタンを表示 */}
+                    {session.status === 'processing' && (
+                       <div className="flex gap-1">
+                         <button onClick={() => onResume(session)} className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full hover:bg-blue-700 transition-colors flex items-center gap-1"><Play className="w-2 h-2"/> 再開</button>
+                         <button onClick={() => onForceStop(session.id)} className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full hover:bg-red-600 transition-colors flex items-center gap-1"><StopCircle className="w-2 h-2"/> 停止</button>
+                       </div>
+                    )}
+                  </div>
                   <div className="text-xs text-slate-500 flex gap-2 mt-0.5">
                     <span className="flex items-center gap-1"><User className="w-3 h-3"/> {session.user}</span>
                     <span>•</span>
@@ -452,7 +462,7 @@ const DashboardView = ({ sessions, onNavigate }) => {
   );
 };
 
-const HistoryView = ({ sessions, onResume }) => {
+const HistoryView = ({ sessions, onResume, onForceStop, onDelete, currentUser }) => {
   const [selectedSession, setSelectedSession] = useState(null);
   
   const groupedSessions = useMemo(() => {
@@ -481,11 +491,19 @@ const HistoryView = ({ sessions, onResume }) => {
        <div className="h-full flex flex-col">
          <div className="flex justify-between items-center mb-2">
             <button onClick={() => setSelectedSession(null)} className="text-sm text-slate-500 hover:text-blue-600 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> フォルダに戻る</button>
-            {(selectedSession.status === 'aborted' || selectedSession.status === 'paused') && (
-              <button onClick={() => onResume(selectedSession)} className="bg-amber-500 text-white px-4 py-2 rounded shadow-sm hover:bg-amber-600 text-sm font-bold flex items-center gap-2 animate-pulse">
-                <PlayCircle className="w-4 h-4"/> 続きから再開 ({selectedSession.lastPage}ページ目〜)
-              </button>
-            )}
+            
+            <div className="flex gap-2">
+                {(selectedSession.status === 'aborted' || selectedSession.status === 'paused' || selectedSession.status === 'processing') && (
+                  <button onClick={() => onResume(selectedSession)} className="bg-amber-500 text-white px-4 py-2 rounded shadow-sm hover:bg-amber-600 text-sm font-bold flex items-center gap-2 animate-pulse">
+                    <PlayCircle className="w-4 h-4"/> 続きから再開 ({selectedSession.lastPage}ページ目〜)
+                  </button>
+                )}
+                {selectedSession.status === 'processing' && (
+                  <button onClick={() => onForceStop(selectedSession.id)} className="bg-red-500 text-white px-4 py-2 rounded shadow-sm hover:bg-red-600 text-sm font-bold flex items-center gap-2">
+                    <StopCircle className="w-4 h-4"/> 強制終了
+                  </button>
+                )}
+            </div>
          </div>
          <ResultTableWithTabs 
            title={`${selectedSession.target} の履歴`}
@@ -539,9 +557,20 @@ const HistoryView = ({ sessions, onResume }) => {
                                    </p>
                                 </div>
                              </div>
-                             <div className="flex gap-2">
+                             <div className="flex gap-2 items-center">
                                {session.summary?.critical > 0 && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded flex items-center gap-1"><Siren className="w-3 h-3"/> {session.summary.critical}</span>}
                                <span className="px-2 py-0.5 bg-white border text-slate-500 text-[10px] rounded">全{session.summary?.total}件</span>
+                               
+                               {/* Delete Button for Admin */}
+                               {currentUser?.role === 'admin' && (
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    title="削除"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                               )}
                              </div>
                            </div>
                         ))}
@@ -581,36 +610,20 @@ const saveSessionToFirestore = async (db, currentUser, type, target, allResults)
     }
 };
 
-// --- The Unified UrlSearchView Component ---
 const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef, isHighSpeed, setIsHighSpeed, historySessions, onResume }) => {
   const { targetUrl, results, isProcessing, progress, status, maxPages } = state;
   const [urlStep, setUrlStep] = useState('input'); 
   const [shopMeta, setShopMeta] = useState({ count: 0, shopCode: '', shopName: '' });
   const [checkRange, setCheckRange] = useState(30);
   const [sessionId, setSessionId] = useState(null); 
-  const [liveLog, setLiveLog] = useState([]); // Realtime logs
 
-  // Collision Detection (Active & History)
-  const collisionStatus = useMemo(() => {
+  const previousHistory = useMemo(() => {
     if (!targetUrl) return null;
-    // 1. Check active processing
-    // Note: This requires syncing active sessions to firestore, currently we only save progressive state.
-    // We can check historySessions for status 'processing' on same target
-    const activeSession = historySessions.find(s => s.target === targetUrl && s.status === 'processing');
-    if (activeSession) {
-        return { type: 'active', user: activeSession.user, date: activeSession.createdAt };
-    }
-    // 2. Check past history
-    const pastSession = historySessions.find(s => s.target === targetUrl && s.status === 'completed');
-    if (pastSession) {
-        return { type: 'past', user: pastSession.user, date: pastSession.createdAt };
-    }
-    return null;
+    const sameUrl = historySessions.find(s => s.target === targetUrl && s.type === 'url');
+    return sameUrl;
   }, [targetUrl, historySessions]);
 
   const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
-
-  const addLog = (msg) => setLiveLog(prev => [msg, ...prev].slice(0, 5)); // Keep last 5 logs
 
   const fetchShopInfo = async () => {
     if (!config.rakutenAppId) return addToast('楽天アプリIDが設定されていません', 'error');
@@ -673,7 +686,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   const runUrlCheckLoop = async (startP, sessId, currentResults) => {
       let page = startP;
       let totalResults = [...currentResults];
-      
       const neededPages = Math.ceil(checkRange / 30); 
 
       try {
@@ -684,7 +696,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                   break;
               }
 
-              addLog(`ページ ${page}/${neededPages} の商品データを取得中...`);
               updateState({ status: `データ取得中... (${page}ページ目)` });
 
               const apiUrl = new URL('/api/rakuten', window.location.origin);
@@ -708,7 +719,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
               for (let i = 0; i < pageProducts.length; i += BATCH_SIZE) {
                   if (stopRef.current) break;
                   const batch = pageProducts.slice(i, i + BATCH_SIZE);
-                  addLog(`AI分析中: ${batch[0].productName.slice(0, 15)}... 他${batch.length-1}件`);
                   
                   const promises = batch.map(item => analyzeItemRisk(item, config.apiKey).then(res => ({ ...item, ...res })));
                   const batchRes = await Promise.all(promises);
@@ -723,11 +733,8 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
               }
 
               totalResults = [...totalResults, ...pageResults];
-              
               await updateSessionStatus(sessId, 'processing', page, totalResults);
-              
               if (totalResults.length >= checkRange) break;
-              
               await new Promise(r => setTimeout(r, 1000));
               page++;
           }
@@ -750,7 +757,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
       
       setUrlStep('processing');
-      setLiveLog([]);
       updateState({ isProcessing: true, status: '準備中...', progress: 0 });
       stopRef.current = false;
 
@@ -818,22 +824,15 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                    {isProcessing ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>} ショップ情報を確認
                 </button>
             </div>
-            
-            {/* Collision Warning */}
-            {collisionStatus && collisionStatus.type === 'active' && (
-                <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-center gap-2 text-red-800 font-bold animate-pulse">
-                    <Activity className="w-5 h-5"/>
-                    <span>⚠️ 警告: 現在、{collisionStatus.user}さんがこのショップを調査中です！ 重複作業にご注意ください。</span>
-                </div>
-            )}
-            {collisionStatus && collisionStatus.type === 'past' && (
-                 <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-center gap-2 text-blue-800 text-sm">
-                    <History className="w-4 h-4"/>
-                    <span>履歴あり: {collisionStatus.user}さんが {new Date(collisionStatus.date.seconds*1000).toLocaleDateString()} に調査済みです。</span>
-                    <button onClick={() => handleStart(historySessions.find(s => s.target === targetUrl))} className="ml-2 underline font-bold hover:text-blue-900">履歴を見る</button>
+            {previousHistory && (
+                 <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center justify-center gap-2 text-yellow-800 text-sm">
+                    <Info className="w-4 h-4"/>
+                    <span>過去の履歴あり: {new Date(previousHistory.createdAt.seconds*1000).toLocaleDateString()} ({previousHistory.summary?.total}件)</span>
+                    {previousHistory.status !== 'completed' && (
+                         <button onClick={() => handleStart(previousHistory)} className="ml-2 underline font-bold hover:text-yellow-900">続きから再開する</button>
+                    )}
                  </div>
             )}
-            
             {!config.rakutenAppId && <p className="text-red-500 font-bold mt-4">⚠ 設定画面で楽天アプリIDを入力してください</p>}
         </div>
       </div>
@@ -871,50 +870,33 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   }
 
   if (urlStep === 'processing') {
-      const latestItem = results.length > 0 ? results[results.length - 1] : null;
+      // NEW: Live Monitor View (Real-time Stock Table)
+      // We use ResultTableWithTabs but allow it to update live.
       return (
-          <div className="space-y-6 animate-in fade-in w-full h-full flex flex-col">
-             <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg flex flex-col md:flex-row gap-6 items-stretch">
-                 <div className="flex-1 flex flex-col justify-center">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="relative">
-                            <Activity className="w-8 h-8 text-green-400 animate-pulse"/>
-                            <span className="absolute top-0 right-0 w-2 h-2 bg-green-400 rounded-full animate-ping"></span>
-                        </div>
-                        <div>
-                            <h2 className="text-xl font-bold">AIリアルタイム監査中</h2>
-                            <p className="text-slate-400 text-sm">{status}</p>
-                        </div>
-                    </div>
-                    <div className="w-full bg-slate-700 rounded-full h-3 overflow-hidden mb-2"><div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div></div>
-                    <div className="flex justify-between text-xs font-mono text-slate-400">
-                        <span>Progress: {Math.round(progress)}%</span>
-                        <span>Checked: {results.length} items</span>
-                    </div>
+          <div className="h-full flex flex-col animate-in fade-in">
+             <div className="flex items-center justify-between mb-4 bg-blue-900 text-white p-4 rounded-lg shadow-lg">
+                 <div className="flex items-center gap-3">
+                     <Activity className="w-6 h-6 animate-pulse text-green-400"/>
+                     <div>
+                         <h2 className="font-bold text-lg">リアルタイム検査中</h2>
+                         <p className="text-xs text-blue-200">{status}</p>
+                     </div>
                  </div>
-                 <div className="w-full md:w-1/3 bg-slate-800 rounded-lg p-4 border border-slate-700 flex items-center gap-4">
-                    {latestItem ? (
-                        <>
-                            <img src={latestItem.imageUrl} alt="" className="w-16 h-16 object-cover rounded bg-white" />
-                            <div className="min-w-0">
-                                <p className="text-xs text-slate-400 mb-1">Current Analyzing:</p>
-                                <p className="text-sm font-bold truncate text-white">{latestItem.productName}</p>
-                                <div className="mt-2">
-                                    {latestItem.risk === '高' ? <span className="text-red-400 font-bold text-xs flex items-center gap-1"><Siren className="w-3 h-3"/> High Risk Detected</span> : <span className="text-green-400 text-xs">OK</span>}
-                                </div>
-                            </div>
-                        </>
-                    ) : <div className="text-slate-500 text-sm flex items-center justify-center w-full h-full">Waiting for data...</div>}
+                 <div className="text-right">
+                     <p className="text-2xl font-mono font-bold">{results.length} <span className="text-sm font-normal">件完了</span></p>
+                     <button onClick={() => stopRef.current = true} className="text-xs underline hover:text-red-300 mt-1">中断して結果を見る</button>
                  </div>
              </div>
-             <div className="bg-black rounded-xl p-4 font-mono text-xs text-green-400 h-48 overflow-hidden flex flex-col shadow-inner border border-slate-800">
-                 <div className="flex items-center gap-2 pb-2 border-b border-slate-800 mb-2 text-slate-500"><Terminal className="w-3 h-3"/> System Log</div>
-                 <div className="flex-1 overflow-y-auto space-y-1">
-                     {liveLog.map((log, i) => <div key={i} className="opacity-80 border-l-2 border-green-900 pl-2"><span className="text-slate-500">[{new Date().toLocaleTimeString()}]</span> {log}</div>)}
-                     <div className="animate-pulse">_</div>
-                 </div>
+             
+             {/* Progress Bar */}
+             <div className="w-full bg-slate-200 h-2 rounded-full mb-6 overflow-hidden">
+                 <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${progress}%` }}></div>
              </div>
-             <div className="text-center"><button onClick={() => stopRef.current = true} className="text-slate-400 hover:text-white text-sm underline">処理を中断して結果を見る</button></div>
+
+             {/* Live Table */}
+             <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm">
+                 <ResultTableWithTabs items={results} currentUser={currentUser} title="検出済み商品リスト" showDownload={false} />
+             </div>
           </div>
       );
   }
@@ -1087,8 +1069,6 @@ const UserManagementView = ({ db, userList, addToast }) => {
 
 const SettingsView = ({ config, setConfig, addToast, initFirebase }) => {
   const handleSave = () => {
-    // Save to Firestore Settings Collection for Team sharing
-    // This implementation still uses localStorage for simplicity but can be upgraded to Firestore global config
     localStorage.setItem('gemini_api_key', config.apiKey);
     localStorage.setItem('rakuten_app_id', config.rakutenAppId);
     localStorage.setItem('firebase_config', config.firebaseJson);
@@ -1168,14 +1148,26 @@ export default function App() {
     const savedApiKey = localStorage.getItem('gemini_api_key') || '';
     const savedRakutenId = localStorage.getItem('rakuten_app_id') || '';
     const savedFbConfig = localStorage.getItem('firebase_config') || '';
-    
-    setConfig({ apiKey: savedApiKey, rakutenAppId: savedRakutenId, firebaseJson: savedFbConfig });
-    if (savedFbConfig) initFirebase(savedFbConfig);
+    const savedSession = localStorage.getItem('app_session'); 
+
+    if (savedApiKey) setApiKey(savedApiKey);
+    if (savedRakutenId) setRakutenAppId(savedRakutenId);
+    if (savedFbConfig) {
+      setFirebaseConfigJson(savedFbConfig);
+      initFirebase(savedFbConfig);
+    }
+    if (savedSession) {
+       try {
+          setCurrentUser(JSON.parse(savedSession));
+       } catch(e){}
+    }
   }, []);
 
   const handleLogin = async (id, pass) => {
     if (id === 'admin' && pass === APP_CONFIG.FIXED_PASSWORD) {
-      setCurrentUser({ name: '管理者(System)', role: 'admin' });
+      const adminUser = { name: '管理者(System)', role: 'admin' };
+      setCurrentUser(adminUser);
+      localStorage.setItem('app_session', JSON.stringify(adminUser));
       addToast('管理者としてログインしました', 'success');
       return;
     }
@@ -1186,7 +1178,9 @@ export default function App() {
       const snap = await getDocs(q);
       if (!snap.empty) {
         const userData = snap.docs[0].data();
-        setCurrentUser({ name: userData.name, role: userData.role });
+        const userObj = { name: userData.name, role: userData.role };
+        setCurrentUser(userObj);
+        localStorage.setItem('app_session', JSON.stringify(userObj));
         addToast(`ようこそ、${userData.name}さん`, 'success');
       } else {
         addToast('IDまたはパスワードが違います', 'error');
@@ -1198,6 +1192,7 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    localStorage.removeItem('app_session');
     setActiveTab('dashboard');
     addToast('ログアウトしました', 'info');
   };
@@ -1205,6 +1200,29 @@ export default function App() {
   const handleResumeSession = (session) => {
      setUrlSearchState(prev => ({ ...prev, resumeSession: session }));
      setActiveTab('url');
+  };
+
+  const handleForceStop = async (sessionId) => {
+    if(!confirm("この検査を強制的に「中断」扱いにしますか？\n(ブラウザを閉じてしまった場合などに使用します)")) return;
+    if(db) {
+      await updateDoc(doc(db, 'check_sessions', sessionId), {
+        status: 'aborted',
+        updatedAt: serverTimestamp()
+      });
+    }
+  };
+
+  const handleDeleteSession = async (sessionId) => {
+    if (!db) return;
+    if (!confirm("この検査履歴を完全に削除しますか？\n復元はできません。")) return;
+    
+    try {
+      await deleteDoc(doc(db, 'check_sessions', sessionId));
+      addToast('履歴を削除しました', 'success');
+    } catch (e) {
+      console.error(e);
+      addToast('削除に失敗しました', 'error');
+    }
   };
 
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
@@ -1257,7 +1275,7 @@ export default function App() {
         </aside>
 
         <main className="flex-1 overflow-y-auto p-6 w-full">
-          {activeTab === 'dashboard' && <DashboardView sessions={historySessions} onNavigate={setActiveTab} />}
+          {activeTab === 'dashboard' && <DashboardView sessions={historySessions} onNavigate={setActiveTab} onResume={handleResumeSession} onForceStop={handleForceStop} />}
           
           {/* URL Search View - Force rendering but hide with CSS when inactive to persist state */}
           <div className={activeTab === 'url' ? 'block' : 'hidden'}>
@@ -1269,7 +1287,7 @@ export default function App() {
              <CsvSearchView config={config} db={db} currentUser={currentUser} addToast={addToast} state={csvSearchState} setState={setCsvSearchState} stopRef={csvSearchStopRef} isHighSpeed={isHighSpeed} setIsHighSpeed={setIsHighSpeed} />
           </div>
 
-          {activeTab === 'history' && <HistoryView sessions={historySessions} onResume={(session) => { setActiveTab('url'); setUrlSearchState(p => ({...p, resumeSession: session})); }} />}
+          {activeTab === 'history' && <HistoryView sessions={historySessions} onResume={(session) => { setActiveTab('url'); setUrlSearchState(p => ({...p, resumeSession: session})); }} onForceStop={handleForceStop} onDelete={handleDeleteSession} currentUser={currentUser} />}
           {activeTab === 'users' && <UserManagementView db={db} userList={userList} addToast={addToast} />}
           {activeTab === 'settings' && <SettingsView config={config} setConfig={setConfig} addToast={addToast} initFirebase={initFirebase} />}
         </main>
