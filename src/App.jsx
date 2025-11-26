@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity, Cloud, LockKeyhole } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 
 /**
  * ============================================================================
@@ -12,7 +12,7 @@ const APP_CONFIG = {
   FIXED_PASSWORD: 'admin123',
   API_TIMEOUT: 30000,
   RETRY_LIMIT: 8,
-  VERSION: '8.0.0-LivePatrol'
+  VERSION: '9.0.0-TeamCollab'
 };
 
 const parseCSV = (text) => {
@@ -187,7 +187,7 @@ const LoginView = ({ onLogin }) => {
           <div className="inline-flex p-4 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-2xl shadow-lg shadow-indigo-200 mb-4 transform hover:scale-105 transition-transform">
             <ShieldAlert className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800">楽天パトロール Pro</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Rakuten Patrol Pro</h1>
           <p className="text-sm text-slate-500 mt-2 font-medium">AI弁理士による権利侵害チェックシステム</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -590,10 +590,22 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   const [sessionId, setSessionId] = useState(null); 
   const [liveLog, setLiveLog] = useState([]); // Realtime logs
 
-  const previousHistory = useMemo(() => {
+  // Collision Detection (Active & History)
+  const collisionStatus = useMemo(() => {
     if (!targetUrl) return null;
-    const sameUrl = historySessions.find(s => s.target === targetUrl && s.type === 'url');
-    return sameUrl;
+    // 1. Check active processing
+    // Note: This requires syncing active sessions to firestore, currently we only save progressive state.
+    // We can check historySessions for status 'processing' on same target
+    const activeSession = historySessions.find(s => s.target === targetUrl && s.status === 'processing');
+    if (activeSession) {
+        return { type: 'active', user: activeSession.user, date: activeSession.createdAt };
+    }
+    // 2. Check past history
+    const pastSession = historySessions.find(s => s.target === targetUrl && s.status === 'completed');
+    if (pastSession) {
+        return { type: 'past', user: pastSession.user, date: pastSession.createdAt };
+    }
+    return null;
   }, [targetUrl, historySessions]);
 
   const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
@@ -662,7 +674,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       let page = startP;
       let totalResults = [...currentResults];
       
-      // Resume時はcheckRangeをどうするか？全件継続とする
       const neededPages = Math.ceil(checkRange / 30); 
 
       try {
@@ -703,7 +714,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                   const batchRes = await Promise.all(promises);
                   pageResults = [...pageResults, ...batchRes.map(r => ({...r, risk: r.risk_level, isCritical: r.is_critical}))];
                   
-                  // Update UI incrementally for "Live" feel
                   updateState({ 
                       results: [...totalResults, ...pageResults],
                       progress: ((totalResults.length + pageResults.length) / checkRange) * 100
@@ -794,7 +804,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
             <div className="mb-6">
                 <div className="inline-flex p-4 bg-blue-50 rounded-full mb-4 text-blue-600"><ShoppingBag className="w-12 h-12"/></div>
                 <h2 className="text-2xl font-bold text-slate-800">楽天ショップ自動パトロール</h2>
-                <p className="text-slate-500 mt-2">ショップURLを入力すると、AIが全商品をチェックします。</p>
+                <p className="text-slate-500 mt-2">ショップURLを入力すると、商品数を確認してからチェックを実行できます。</p>
             </div>
             <div className="flex flex-col md:flex-row gap-4 items-center justify-center">
                 <input 
@@ -808,15 +818,22 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                    {isProcessing ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>} ショップ情報を確認
                 </button>
             </div>
-            {previousHistory && (
-                 <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center justify-center gap-2 text-yellow-800 text-sm">
-                    <Info className="w-4 h-4"/>
-                    <span>過去の履歴あり: {new Date(previousHistory.createdAt.seconds*1000).toLocaleDateString()} ({previousHistory.summary?.total}件)</span>
-                    {previousHistory.status !== 'completed' && (
-                         <button onClick={() => handleStart(previousHistory)} className="ml-2 underline font-bold hover:text-yellow-900">続きから再開する</button>
-                    )}
+            
+            {/* Collision Warning */}
+            {collisionStatus && collisionStatus.type === 'active' && (
+                <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-center gap-2 text-red-800 font-bold animate-pulse">
+                    <Activity className="w-5 h-5"/>
+                    <span>⚠️ 警告: 現在、{collisionStatus.user}さんがこのショップを調査中です！ 重複作業にご注意ください。</span>
+                </div>
+            )}
+            {collisionStatus && collisionStatus.type === 'past' && (
+                 <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-center gap-2 text-blue-800 text-sm">
+                    <History className="w-4 h-4"/>
+                    <span>履歴あり: {collisionStatus.user}さんが {new Date(collisionStatus.date.seconds*1000).toLocaleDateString()} に調査済みです。</span>
+                    <button onClick={() => handleStart(historySessions.find(s => s.target === targetUrl))} className="ml-2 underline font-bold hover:text-blue-900">履歴を見る</button>
                  </div>
             )}
+            
             {!config.rakutenAppId && <p className="text-red-500 font-bold mt-4">⚠ 設定画面で楽天アプリIDを入力してください</p>}
         </div>
       </div>
@@ -829,7 +846,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
               <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-3xl mx-auto">
                   <button onClick={handleReset} className="mb-4 text-sm text-slate-400 hover:text-blue-600 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> 戻る</button>
                   <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><ShoppingBag className="w-6 h-6 text-blue-600"/> 取得対象の確認</h2>
-                  
                   <div className="bg-slate-50 p-6 rounded-xl mb-8 flex items-center justify-between">
                       <div>
                           <p className="text-sm text-slate-500 font-bold">ショップ名</p>
@@ -841,28 +857,12 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                           <p className="text-3xl font-bold text-blue-600">{shopMeta.count.toLocaleString()} <span className="text-sm text-slate-400">件</span></p>
                       </div>
                   </div>
-
                   <div className="space-y-4">
-                      <p className="font-bold text-slate-700">チェック範囲を選択:</p>
+                      <p className="font-bold text-slate-700">チェックする範囲を選択してください:</p>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <button onClick={() => { setCheckRange(30); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 bg-white hover:bg-blue-50 rounded-xl text-left transition-all">
-                              <div className="font-bold text-lg text-slate-800 mb-1">クイック</div>
-                              <div className="text-blue-600 font-bold">最新 30件</div>
-                              <div className="text-xs text-slate-400 mt-1">所要時間: 約30秒</div>
-                          </button>
-                          <button onClick={() => { setCheckRange(300); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 bg-white hover:bg-blue-50 rounded-xl text-left transition-all">
-                              <div className="font-bold text-lg text-slate-800 mb-1">スタンダード</div>
-                              <div className="text-blue-600 font-bold">最新 300件</div>
-                              <div className="text-xs text-slate-400 mt-1">所要時間: 約5分</div>
-                          </button>
-                          <button onClick={() => { 
-                              if(shopMeta.count > 3000 && !confirm(`商品数が${shopMeta.count}件あります。全件チェックには時間がかかりますが実行しますか？`)) return;
-                              setCheckRange(3000); handleStart(null); 
-                          }} className="p-4 border-2 border-slate-200 hover:border-blue-300 bg-white hover:bg-blue-50 rounded-xl text-left transition-all">
-                              <div className="font-bold text-lg text-slate-800 mb-1">フルスキャン</div>
-                              <div className="text-blue-600 font-bold">全件 (Max 3000)</div>
-                              <div className="text-xs text-slate-400 mt-1">所要時間: 30分〜</div>
-                          </button>
+                          <button onClick={() => { setCheckRange(30); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">最新 30件</div><div className="text-xs text-slate-500">お試しチェック</div></button>
+                          <button onClick={() => { setCheckRange(150); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">最新 150件</div><div className="text-xs text-slate-500">直近の商品</div></button>
+                          <button onClick={() => { setCheckRange(3000); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">全件 (Max 3000)</div><div className="text-xs text-slate-500">徹底的にチェック</div></button>
                       </div>
                   </div>
               </div>
@@ -871,13 +871,10 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   }
 
   if (urlStep === 'processing') {
-      // New Live Patrol Screen
       const latestItem = results.length > 0 ? results[results.length - 1] : null;
-
       return (
           <div className="space-y-6 animate-in fade-in w-full h-full flex flex-col">
              <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg flex flex-col md:flex-row gap-6 items-stretch">
-                 {/* Status Panel */}
                  <div className="flex-1 flex flex-col justify-center">
                     <div className="flex items-center gap-3 mb-4">
                         <div className="relative">
@@ -889,16 +886,12 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                             <p className="text-slate-400 text-sm">{status}</p>
                         </div>
                     </div>
-                    <div className="w-full bg-slate-700 rounded-full h-3 overflow-hidden mb-2">
-                         <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
-                    </div>
+                    <div className="w-full bg-slate-700 rounded-full h-3 overflow-hidden mb-2"><div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div></div>
                     <div className="flex justify-between text-xs font-mono text-slate-400">
                         <span>Progress: {Math.round(progress)}%</span>
                         <span>Checked: {results.length} items</span>
                     </div>
                  </div>
-
-                 {/* Live Item Preview */}
                  <div className="w-full md:w-1/3 bg-slate-800 rounded-lg p-4 border border-slate-700 flex items-center gap-4">
                     {latestItem ? (
                         <>
@@ -911,30 +904,17 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                                 </div>
                             </div>
                         </>
-                    ) : (
-                        <div className="text-slate-500 text-sm flex items-center justify-center w-full h-full">Waiting for data...</div>
-                    )}
+                    ) : <div className="text-slate-500 text-sm flex items-center justify-center w-full h-full">Waiting for data...</div>}
                  </div>
              </div>
-
-             {/* Live Log (Terminal Style) */}
              <div className="bg-black rounded-xl p-4 font-mono text-xs text-green-400 h-48 overflow-hidden flex flex-col shadow-inner border border-slate-800">
-                 <div className="flex items-center gap-2 pb-2 border-b border-slate-800 mb-2 text-slate-500">
-                     <Terminal className="w-3 h-3"/> System Log
-                 </div>
+                 <div className="flex items-center gap-2 pb-2 border-b border-slate-800 mb-2 text-slate-500"><Terminal className="w-3 h-3"/> System Log</div>
                  <div className="flex-1 overflow-y-auto space-y-1">
-                     {liveLog.map((log, i) => (
-                         <div key={i} className="opacity-80 border-l-2 border-green-900 pl-2">
-                             <span className="text-slate-500">[{new Date().toLocaleTimeString()}]</span> {log}
-                         </div>
-                     ))}
+                     {liveLog.map((log, i) => <div key={i} className="opacity-80 border-l-2 border-green-900 pl-2"><span className="text-slate-500">[{new Date().toLocaleTimeString()}]</span> {log}</div>)}
                      <div className="animate-pulse">_</div>
                  </div>
              </div>
-
-             <div className="text-center">
-                 <button onClick={() => stopRef.current = true} className="text-slate-400 hover:text-white text-sm underline">処理を中断して結果を見る</button>
-             </div>
+             <div className="text-center"><button onClick={() => stopRef.current = true} className="text-slate-400 hover:text-white text-sm underline">処理を中断して結果を見る</button></div>
           </div>
       );
   }
@@ -1107,6 +1087,8 @@ const UserManagementView = ({ db, userList, addToast }) => {
 
 const SettingsView = ({ config, setConfig, addToast, initFirebase }) => {
   const handleSave = () => {
+    // Save to Firestore Settings Collection for Team sharing
+    // This implementation still uses localStorage for simplicity but can be upgraded to Firestore global config
     localStorage.setItem('gemini_api_key', config.apiKey);
     localStorage.setItem('rakuten_app_id', config.rakutenAppId);
     localStorage.setItem('firebase_config', config.firebaseJson);
@@ -1121,7 +1103,8 @@ const SettingsView = ({ config, setConfig, addToast, initFirebase }) => {
         <div><label className="block font-bold text-sm mb-1">Gemini API Key</label><input type="password" value={config.apiKey} onChange={e => setConfig({...config, apiKey: e.target.value})} className="w-full p-3 border rounded-lg" /></div>
         <div><label className="block font-bold text-sm mb-1">楽天 Application ID</label><input type="text" value={config.rakutenAppId} onChange={e => setConfig({...config, rakutenAppId: e.target.value})} className="w-full p-3 border rounded-lg" /></div>
         <div><label className="block font-bold text-sm mb-1">Firebase Config</label><textarea value={config.firebaseJson} onChange={e => setConfig({...config, firebaseJson: e.target.value})} className="w-full p-3 border rounded-lg h-32 font-mono text-xs" placeholder="Paste config here..." /></div>
-        <button onClick={handleSave} className="w-full py-3 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-900">設定を保存して適用</button>
+        <button onClick={handleSave} className="w-full py-3 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-900 flex items-center justify-center gap-2"><Cloud className="w-4 h-4"/> 設定を保存（チーム全体）</button>
+        <p className="text-xs text-slate-400 text-center">※保存するとチーム全員の設定が更新されます（機能準備中）</p>
       </div>
     </div>
   );
