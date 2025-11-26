@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity, Cloud, LockKeyhole, ZapOff, Gauge, StopCircle } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Play, Download, Loader2, ShieldAlert, Pause, Trash2, Eye, Zap, FolderOpen, Lock, LogOut, History, Settings, Save, Search, Globe, ShoppingBag, AlertCircle, RefreshCw, ExternalLink, Siren, User, Users, UserPlus, X, LayoutDashboard, ChevronRight, Calendar, Folder, FileSearch, ChevronDown, ArrowLeft, Store, Filter, Info, PlayCircle, Terminal, Activity, Cloud, LockKeyhole, ZapOff, Gauge, StopCircle, ImageIcon } from 'lucide-react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where, getDocs, deleteDoc, doc, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 
@@ -12,7 +12,7 @@ const APP_CONFIG = {
   FIXED_PASSWORD: 'admin123',
   API_TIMEOUT: 30000,
   RETRY_LIMIT: 8,
-  VERSION: '9.1.0-LiveList'
+  VERSION: '10.0.0-DesignerEdition'
 };
 
 const parseCSV = (text) => {
@@ -109,16 +109,16 @@ async function analyzeItemRisk(itemData, apiKey, retryCount = 0) {
 
 /**
  * ============================================================================
- * UI Components
+ * UI Components (Designer Edition)
  * ============================================================================
  */
 
 const ToastContainer = ({ toasts, removeToast }) => (
-  <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+  <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none">
     {toasts.map((toast) => (
-      <div key={toast.id} className={`pointer-events-auto min-w-[300px] p-4 rounded-lg shadow-lg text-white flex justify-between items-center animate-in slide-in-from-right fade-in duration-300 ${toast.type === 'error' ? 'bg-red-600' : toast.type === 'success' ? 'bg-green-600' : 'bg-blue-600'}`}>
-        <span className="text-sm font-medium">{toast.message}</span>
-        <button onClick={() => removeToast(toast.id)}><X className="w-4 h-4 opacity-80 hover:opacity-100" /></button>
+      <div key={toast.id} className={`pointer-events-auto min-w-[320px] p-4 rounded-xl shadow-2xl text-white flex justify-between items-center animate-in slide-in-from-right fade-in duration-300 border border-white/10 backdrop-blur-md ${toast.type === 'error' ? 'bg-red-600/90' : toast.type === 'success' ? 'bg-emerald-600/90' : 'bg-slate-800/90'}`}>
+        <span className="text-sm font-medium tracking-wide">{toast.message}</span>
+        <button onClick={() => removeToast(toast.id)} className="hover:bg-white/20 p-1 rounded-full transition-colors"><X className="w-4 h-4" /></button>
       </div>
     ))}
   </div>
@@ -126,23 +126,23 @@ const ToastContainer = ({ toasts, removeToast }) => (
 
 const RiskBadge = ({ item }) => {
   const { risk, isCritical, is_critical } = item;
-  if (isCritical || is_critical) return <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-600 text-white items-center gap-1 shadow-sm whitespace-nowrap"><Siren className="w-3 h-3"/> 重大</span>;
-  if (risk === '高' || risk === 'High') return <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">高</span>;
-  if (risk === '中' || risk === 'Medium') return <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-200 whitespace-nowrap">中</span>;
-  return <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">低</span>;
+  if (isCritical || is_critical) return <span className="inline-flex px-3 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 items-center gap-1.5 shadow-sm whitespace-nowrap"><Siren className="w-3 h-3"/> 重大</span>;
+  if (risk === '高' || risk === 'High') return <span className="inline-flex px-3 py-1 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">高</span>;
+  if (risk === '中' || risk === 'Medium') return <span className="inline-flex px-3 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 whitespace-nowrap">中</span>;
+  return <span className="inline-flex px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 whitespace-nowrap">低</span>;
 };
 
 const StatCard = ({ title, value, icon: Icon, color, onClick }) => (
   <div 
     onClick={onClick}
-    className={`bg-white p-4 md:p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4 transition-all ${onClick ? 'cursor-pointer hover:shadow-md hover:scale-[1.02] hover:bg-slate-50/50' : ''}`}
+    className={`bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-5 transition-all group ${onClick ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5' : ''}`}
   >
-    <div className={`p-3 rounded-full ${color} bg-opacity-10`}>
+    <div className={`p-4 rounded-2xl ${color} bg-opacity-10 group-hover:scale-110 transition-transform duration-300`}>
       <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
     </div>
     <div>
-      <p className="text-sm text-slate-500 font-medium">{title}</p>
-      <p className="text-2xl font-bold text-slate-800">{value}</p>
+      <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">{title}</p>
+      <p className="text-3xl font-bold text-slate-800 tracking-tight">{value}</p>
     </div>
   </div>
 );
@@ -150,19 +150,19 @@ const StatCard = ({ title, value, icon: Icon, color, onClick }) => (
 const NavButton = ({ icon: Icon, label, id, active, onClick }) => (
   <button
     onClick={() => onClick(id)}
-    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${active === id ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${active === id ? 'bg-blue-50 text-blue-700 shadow-sm translate-x-1' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}
   >
-    <Icon className={`w-4 h-4 ${active === id ? 'text-blue-600' : 'text-slate-400'}`} />
+    <Icon className={`w-5 h-5 ${active === id ? 'text-blue-600' : 'text-slate-400'}`} />
     {label}
-    {active === id && <ChevronRight className="w-3 h-3 ml-auto text-blue-400" />}
+    {active === id && <ChevronRight className="w-4 h-4 ml-auto text-blue-400" />}
   </button>
 );
 
 const SessionStatusBadge = ({ status }) => {
-  if (status === 'completed') return <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">完了</span>;
-  if (status === 'processing') return <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold animate-pulse">検査中</span>;
-  if (status === 'aborted' || status === 'paused') return <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">中断</span>;
-  return <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{status || '不明'}</span>;
+  if (status === 'completed') return <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-full font-bold border border-emerald-200">完了</span>;
+  if (status === 'processing') return <span className="text-[10px] bg-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full font-bold border border-blue-200 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin"/> 検査中</span>;
+  if (status === 'aborted' || status === 'paused') return <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full font-bold border border-slate-200">中断</span>;
+  return <span className="text-[10px] bg-slate-50 text-slate-400 px-2.5 py-0.5 rounded-full border border-slate-200">{status || '不明'}</span>;
 };
 
 // --- Views ---
@@ -181,32 +181,32 @@ const LoginView = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl max-w-sm w-full border border-white/50 backdrop-blur-sm">
-        <div className="text-center mb-8">
-          <div className="inline-flex p-4 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-2xl shadow-lg shadow-indigo-200 mb-4 transform hover:scale-105 transition-transform">
-            <ShieldAlert className="w-10 h-10 text-white" />
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="bg-white p-10 rounded-3xl shadow-xl max-w-sm w-full border border-slate-100">
+        <div className="text-center mb-10">
+          <div className="inline-flex p-5 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-2xl shadow-lg shadow-blue-200 mb-6 transform hover:scale-105 transition-transform duration-500">
+            <ShieldAlert className="w-12 h-12 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800">Rakuten Patrol Pro</h1>
-          <p className="text-sm text-slate-500 mt-2 font-medium">AI弁理士による権利侵害チェックシステム</p>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Rakuten Patrol <span className="text-blue-600">Pro</span></h1>
+          <p className="text-sm text-slate-500 mt-3 font-medium leading-relaxed">AI弁理士による<br/>知的財産権侵害チェックシステム</p>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">ログインID</label>
-            <div className="relative">
-              <User className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
-              <input type="text" value={id} onChange={e => setId(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="IDを入力" required />
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider pl-1">ID</label>
+            <div className="relative group">
+              <User className="w-5 h-5 absolute left-4 top-3.5 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+              <input type="text" value={id} onChange={e => setId(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="ユーザーID" required />
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">パスワード</label>
-            <div className="relative">
-              <Lock className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
-              <input type="password" value={pass} onChange={e => setPass(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="パスワードを入力" required />
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider pl-1">Password</label>
+            <div className="relative group">
+              <Lock className="w-5 h-5 absolute left-4 top-3.5 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+              <input type="password" value={pass} onChange={e => setPass(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all font-medium text-slate-700" placeholder="パスワード" required />
             </div>
           </div>
-          <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 active:scale-[0.98] transition-all shadow-md disabled:opacity-70 flex justify-center items-center gap-2">
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />} ログイン
+          <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-slate-800 active:scale-[0.98] transition-all shadow-lg disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2 mt-4">
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "システムにログイン"}
           </button>
         </form>
       </div>
@@ -214,6 +214,7 @@ const LoginView = ({ onLogin }) => {
   );
 };
 
+// --- ブラッシュアップされた結果テーブル ---
 const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload = true }) => {
   const [filter, setFilter] = useState('all'); 
 
@@ -257,85 +258,139 @@ const ResultTableWithTabs = ({ items, currentUser, title, onBack, showDownload =
   };
 
   return (
-    <div className="h-full flex flex-col animate-in fade-in">
-      <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+    <div className="h-full flex flex-col animate-in fade-in duration-500">
+      {/* Header */}
+      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
           {onBack && (
-            <button onClick={onBack} className="text-sm text-slate-500 hover:text-blue-600 flex items-center gap-1 bg-white px-3 py-1.5 rounded border shadow-sm hover:bg-slate-50 transition-colors">
-              <ArrowLeft className="w-4 h-4"/> 戻る
+            <button onClick={onBack} className="group text-sm text-slate-500 hover:text-slate-800 flex items-center gap-1 bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm hover:shadow transition-all">
+              <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform"/> 戻る
             </button>
           )}
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <FileSearch className="w-5 h-5 text-blue-600"/>
-            {title}
-          </h2>
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <FileSearch className="w-6 h-6 text-blue-600"/>
+              {title}
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5 ml-1">AI判定結果の詳細レポート</p>
+          </div>
         </div>
         {showDownload && (
-          <button onClick={downloadCsv} className="text-sm font-bold text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-lg transition-colors flex items-center gap-2 border border-blue-100 bg-white shadow-sm">
+          <button onClick={downloadCsv} className="text-sm font-bold text-slate-600 hover:text-blue-600 hover:bg-blue-50 px-5 py-2.5 rounded-lg transition-all flex items-center gap-2 border border-slate-200 bg-white shadow-sm hover:border-blue-200">
             <Download className="w-4 h-4"/> 表示中をCSV出力
           </button>
         )}
       </div>
 
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-        <button onClick={() => setFilter('all')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${filter === 'all' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border hover:bg-slate-50'}`}>
-          すべて ({counts.all})
+      {/* Filter Tabs */}
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-2 px-1">
+        <button onClick={() => setFilter('all')} className={`px-5 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${filter === 'all' ? 'bg-slate-800 text-white shadow-lg shadow-slate-200 scale-105' : 'bg-white text-slate-500 border border-slate-100 hover:bg-slate-50 hover:text-slate-700'}`}>
+          すべて <span className="ml-1 opacity-70 text-xs font-normal">({counts.all})</span>
         </button>
-        <button onClick={() => setFilter('critical')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all flex items-center gap-1 ${filter === 'critical' ? 'bg-red-600 text-white shadow-md' : 'bg-white text-red-600 border border-red-100 hover:bg-red-50'}`}>
-          <Siren className="w-4 h-4"/> 重大・高 ({counts.critical})
+        <button onClick={() => setFilter('critical')} className={`px-5 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all flex items-center gap-2 ${filter === 'critical' ? 'bg-red-600 text-white shadow-lg shadow-red-200 scale-105' : 'bg-white text-slate-500 border border-slate-100 hover:bg-red-50 hover:text-red-600'}`}>
+          <Siren className="w-4 h-4"/> 重大・高 <span className="ml-1 opacity-70 text-xs font-normal">({counts.critical})</span>
         </button>
-        <button onClick={() => setFilter('medium')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${filter === 'medium' ? 'bg-yellow-500 text-white shadow-md' : 'bg-white text-yellow-600 border border-yellow-100 hover:bg-yellow-50'}`}>
-          中リスク ({counts.medium})
+        <button onClick={() => setFilter('medium')} className={`px-5 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${filter === 'medium' ? 'bg-amber-500 text-white shadow-lg shadow-amber-200 scale-105' : 'bg-white text-slate-500 border border-slate-100 hover:bg-amber-50 hover:text-amber-600'}`}>
+          中リスク <span className="ml-1 opacity-70 text-xs font-normal">({counts.medium})</span>
         </button>
-        <button onClick={() => setFilter('low')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${filter === 'low' ? 'bg-green-600 text-white shadow-md' : 'bg-white text-green-600 border border-green-100 hover:bg-green-50'}`}>
-          低リスク ({counts.low})
+        <button onClick={() => setFilter('low')} className={`px-5 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${filter === 'low' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200 scale-105' : 'bg-white text-slate-500 border border-slate-100 hover:bg-emerald-50 hover:text-emerald-600'}`}>
+          低リスク <span className="ml-1 opacity-70 text-xs font-normal">({counts.low})</span>
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col">
+      {/* Main Table Area */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col">
         <div className="flex-1 overflow-y-auto">
-           <table className="w-full text-sm text-left">
-             <thead className="bg-slate-50 sticky top-0 z-10 text-slate-600 shadow-sm">
+           <table className="w-full text-left border-collapse">
+             <thead className="bg-slate-50/80 backdrop-blur sticky top-0 z-10 border-b border-slate-200 shadow-sm">
                <tr>
-                 <th className="p-3 w-20 text-center font-bold">判定</th>
-                 <th className="p-3 w-20 text-center font-bold">画像</th>
-                 <th className="p-3 font-bold min-w-[250px]">商品名 / リンク</th>
-                 <th className="p-3 w-1/3 font-bold min-w-[300px]">弁理士AIの指摘</th>
-                 <th className="p-3 w-32 font-bold">ソース</th>
+                 <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-32 text-center">Risk Level</th>
+                 <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-28 text-center">Image</th>
+                 <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider min-w-[300px]">Item Details</th>
+                 <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-1/3 min-w-[350px]">AI Analysis</th>
+                 <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-32 text-center">Source</th>
                </tr>
              </thead>
              <tbody className="divide-y divide-slate-100">
                {filteredItems.map((item, idx) => (
-                 <tr key={idx} className={`hover:bg-slate-50 transition-colors ${item.isCritical || item.is_critical ? 'bg-red-50' : ''}`}>
-                   <td className="p-3 text-center align-top"><RiskBadge item={item}/></td>
-                   <td className="p-3 align-top text-center">
-                      {item.imageUrl ? <a href={item.itemUrl} target="_blank" rel="noreferrer"><img src={item.imageUrl} className="w-12 h-12 object-contain border rounded bg-white mx-auto hover:scale-150 transition-transform z-10 relative shadow-sm bg-white" alt=""/></a> : <div className="w-12 h-12 bg-slate-100 rounded mx-auto flex items-center justify-center text-xs text-slate-400">No Img</div>}
+                 <tr key={idx} className={`group transition-all duration-200 hover:bg-blue-50/30 ${item.isCritical || item.is_critical ? 'bg-red-50/30' : ''}`}>
+                   
+                   {/* Risk Badge */}
+                   <td className="px-6 py-5 align-top text-center">
+                     <RiskBadge item={item}/>
                    </td>
-                   <td className="p-3 align-top">
-                      <div className="font-medium text-slate-800 line-clamp-2 mb-1" title={item.productName}>{item.productName}</div>
+
+                   {/* Image Thumbnail */}
+                   <td className="px-6 py-5 align-top">
+                      <div className="relative w-20 h-20 mx-auto bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden group-hover:shadow-md transition-all group-hover:scale-105">
+                        {item.imageUrl ? (
+                          <a href={item.itemUrl} target="_blank" rel="noreferrer" className="block w-full h-full">
+                            <img src={item.imageUrl} alt="" className="w-full h-full object-contain" />
+                          </a>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-300">
+                            <ImageIcon className="w-6 h-6"/>
+                          </div>
+                        )}
+                      </div>
+                   </td>
+
+                   {/* Product Name & Link */}
+                   <td className="px-6 py-5 align-top">
+                      <div className="font-bold text-slate-700 text-base leading-snug mb-2 group-hover:text-blue-700 transition-colors">
+                        {item.productName}
+                      </div>
                       {item.itemUrl && (
-                        <a href={item.itemUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1 bg-blue-50 px-2 py-1 rounded w-fit">
-                          <ExternalLink className="w-3 h-3"/> 商品ページ
+                        <a href={item.itemUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-lg hover:bg-blue-100 transition-colors">
+                          <ExternalLink className="w-3 h-3"/> 商品ページを開く
                         </a>
                       )}
                    </td>
-                   <td className="p-3 align-top text-slate-700 text-xs leading-relaxed">
-                      {(item.isCritical || item.is_critical) && <div className="text-red-600 font-bold mb-1 flex items-center gap-1"><Siren className="w-3 h-3"/> 重大な権利侵害の疑い</div>}
-                      {item.reason}
+
+                   {/* AI Reason */}
+                   <td className="px-6 py-5 align-top">
+                      {(item.isCritical || item.is_critical) && (
+                        <div className="inline-flex items-center gap-1.5 text-xs font-bold text-red-600 bg-red-100 px-3 py-1.5 rounded-lg mb-2 border border-red-200">
+                          <Siren className="w-3 h-3"/>
+                          重大な権利侵害の疑いあり
+                        </div>
+                      )}
+                      <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">
+                        {item.reason || "特記事項なし"}
+                      </div>
                    </td>
-                   <td className="p-3 align-top text-xs text-slate-500">
-                      {/* ソース表示の修正：URLまたはファイル名を表示 */}
-                      {(item.source || item.sourceFile) && (item.source || item.sourceFile).startsWith('http') ? (
-                        <a href={item.source || item.sourceFile} target="_blank" rel="noreferrer" className="text-green-700 hover:underline flex items-center gap-1">
-                           <Store className="w-3 h-3"/> ショップ
-                        </a>
+
+                   {/* Source Info */}
+                   <td className="px-6 py-5 align-top text-center">
+                      {item.source && item.source.startsWith('http') ? (
+                        <div className="flex flex-col items-center gap-1">
+                           <a href={item.source} target="_blank" rel="noreferrer" className="p-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors" title="ショップへ">
+                             <Store className="w-4 h-4"/>
+                           </a>
+                           <span className="text-[10px] text-slate-400">Shop</span>
+                        </div>
                       ) : (
-                        <span className="flex items-center gap-1 truncate max-w-[100px]"><FileText className="w-3 h-3"/> {item.source || item.sourceFile || 'CSV'}</span>
+                        <div className="flex flex-col items-center gap-1">
+                           <div className="p-2 bg-slate-50 text-slate-500 rounded-lg" title={item.source || item.sourceFile}>
+                             <FileText className="w-4 h-4"/>
+                           </div>
+                           <span className="text-[10px] text-slate-400">CSV</span>
+                        </div>
                       )}
                    </td>
+
                  </tr>
                ))}
-               {filteredItems.length === 0 && <tr><td colSpan="5" className="p-10 text-center text-slate-400">該当する商品はありません</td></tr>}
+               {filteredItems.length === 0 && (
+                 <tr>
+                   <td colSpan="5" className="py-20 text-center">
+                     <div className="inline-flex p-4 bg-slate-50 rounded-full mb-3">
+                       <Search className="w-6 h-6 text-slate-300"/>
+                     </div>
+                     <p className="text-slate-400 font-medium">該当する商品は見つかりませんでした</p>
+                   </td>
+                 </tr>
+               )}
              </tbody>
            </table>
         </div>
@@ -387,9 +442,9 @@ const DashboardView = ({ sessions, onNavigate, onResume, onForceStop }) => {
     return (
       <ResultTableWithTabs 
         title={
-          drillDownType === 'critical' ? '重大な疑いのある商品一覧' :
-          drillDownType === 'high' ? '高リスク商品一覧' :
-          drillDownType === 'today' ? '本日の検査商品一覧' : '全検査商品一覧'
+          drillDownType === 'critical' ? '重大な疑いのある商品' :
+          drillDownType === 'high' ? '高リスク商品' :
+          drillDownType === 'today' ? '本日の検査商品' : '全検査商品一覧'
         }
         items={stats.lists[drillDownType]}
         onBack={() => setDrillDownType(null)}
@@ -399,63 +454,62 @@ const DashboardView = ({ sessions, onNavigate, onResume, onForceStop }) => {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">ダッシュボード</h2>
-          <p className="text-slate-500">最新のパトロール状況のサマリー</p>
+          <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Dashboard</h2>
+          <p className="text-slate-500 mt-1 font-medium">現在のパトロール状況サマリー</p>
         </div>
-        <button onClick={() => onNavigate('url')} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2">
-          <Search className="w-4 h-4" /> 新規チェック開始
+        <button onClick={() => onNavigate('url')} className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 shadow-lg shadow-slate-200 hover:shadow-xl transition-all flex items-center gap-2 active:scale-95">
+          <Search className="w-5 h-5" /> 新規チェックを開始
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <StatCard title="本日の検査数" value={stats.counts.todayChecks} icon={RefreshCw} color="bg-blue-500 text-blue-500" onClick={() => setDrillDownType('today')} />
         <StatCard title="重大な疑い(累計)" value={stats.counts.totalCritical} icon={Siren} color="bg-purple-500 text-purple-500" onClick={() => setDrillDownType('critical')} />
         <StatCard title="高リスク(累計)" value={stats.counts.totalHigh} icon={AlertCircle} color="bg-red-500 text-red-500" onClick={() => setDrillDownType('high')} />
         <StatCard title="総検査商品数" value={stats.counts.totalChecks} icon={History} color="bg-slate-500 text-slate-500" onClick={() => setDrillDownType('all')} />
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h3 className="font-bold text-slate-700">最新の検査セッション</h3>
-          <button onClick={() => onNavigate('history')} className="text-sm text-blue-600 hover:underline">履歴一覧へ</button>
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-lg shadow-slate-100 overflow-hidden">
+        <div className="p-6 border-b border-slate-50 flex justify-between items-center">
+          <h3 className="font-bold text-lg text-slate-700">最新の検査セッション</h3>
+          <button onClick={() => onNavigate('history')} className="text-sm font-medium text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">履歴一覧へ</button>
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-slate-50">
           {sessions.slice(0, 5).map((session) => (
-            <div key={session.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className={`p-2 rounded-lg ${session.type === 'url' ? 'bg-blue-100 text-blue-600' : 'bg-green-100 text-green-600'}`}>
-                  {session.type === 'url' ? <ShoppingBag className="w-5 h-5"/> : <FileText className="w-5 h-5"/>}
+            <div key={session.id} className="p-5 hover:bg-slate-50/80 transition-colors flex items-center justify-between group">
+              <div className="flex items-center gap-5">
+                <div className={`p-3 rounded-xl ${session.type === 'url' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                  {session.type === 'url' ? <ShoppingBag className="w-6 h-6"/> : <FileText className="w-6 h-6"/>}
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-slate-800 truncate max-w-md">{session.target || '不明なターゲット'}</p>
-                    {/* 状態がProcessingの場合、アクションボタンを表示 */}
+                  <div className="flex items-center gap-3 mb-1">
+                    <p className="text-base font-bold text-slate-800 truncate max-w-md">{session.target || '不明なターゲット'}</p>
                     {session.status === 'processing' && (
-                       <div className="flex gap-1">
-                         <button onClick={() => onResume(session)} className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full hover:bg-blue-700 transition-colors flex items-center gap-1"><Play className="w-2 h-2"/> 再開</button>
-                         <button onClick={() => onForceStop(session.id)} className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full hover:bg-red-600 transition-colors flex items-center gap-1"><StopCircle className="w-2 h-2"/> 停止</button>
+                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <button onClick={() => onResume(session)} className="text-[10px] bg-blue-600 text-white px-3 py-1 rounded-full hover:bg-blue-700 transition-colors font-bold flex items-center gap-1"><Play className="w-3 h-3"/> 再開</button>
+                         <button onClick={() => onForceStop(session.id)} className="text-[10px] bg-slate-200 text-slate-600 px-3 py-1 rounded-full hover:bg-red-100 hover:text-red-600 transition-colors font-bold flex items-center gap-1"><StopCircle className="w-3 h-3"/> 停止</button>
                        </div>
                     )}
                   </div>
-                  <div className="text-xs text-slate-500 flex gap-2 mt-0.5">
-                    <span className="flex items-center gap-1"><User className="w-3 h-3"/> {session.user}</span>
-                    <span>•</span>
-                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {session.createdAt ? new Date(session.createdAt.seconds * 1000).toLocaleString() : '-'}</span>
+                  <div className="text-xs text-slate-400 flex gap-3">
+                    <span className="flex items-center gap-1.5"><User className="w-3 h-3"/> {session.user}</span>
+                    <span className="flex items-center gap-1.5"><Calendar className="w-3 h-3"/> {session.createdAt ? new Date(session.createdAt.seconds * 1000).toLocaleString() : '-'}</span>
                     <SessionStatusBadge status={session.status} />
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2 text-xs font-bold">
-                {session.summary?.critical > 0 && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded flex items-center gap-1"><Siren className="w-3 h-3"/> {session.summary.critical}</span>}
-                {session.summary?.high > 0 && <span className="px-2 py-1 bg-red-100 text-red-700 rounded">高: {session.summary.high}</span>}
-                <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded">全: {session.summary?.total}</span>
+              <div className="flex gap-2 items-center">
+                {session.summary?.critical > 0 && <span className="px-3 py-1 bg-purple-50 text-purple-700 text-xs font-bold rounded-lg flex items-center gap-1.5 border border-purple-100"><Siren className="w-3 h-3"/> {session.summary.critical}</span>}
+                {session.summary?.high > 0 && <span className="px-3 py-1 bg-red-50 text-red-700 text-xs font-bold rounded-lg border border-red-100">高: {session.summary.high}</span>}
+                <span className="px-3 py-1 bg-slate-50 text-slate-500 text-xs font-medium rounded-lg border border-slate-100">全: {session.summary?.total}</span>
+                <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-slate-400 ml-2"/>
               </div>
             </div>
           ))}
-          {sessions.length === 0 && <div className="p-8 text-center text-slate-400">履歴がありません</div>}
+          {sessions.length === 0 && <div className="p-12 text-center text-slate-400 font-medium">履歴がまだありません</div>}
         </div>
       </div>
     </div>
@@ -489,17 +543,17 @@ const HistoryView = ({ sessions, onResume, onForceStop, onDelete, currentUser })
   if (selectedSession) {
     return (
        <div className="h-full flex flex-col">
-         <div className="flex justify-between items-center mb-2">
-            <button onClick={() => setSelectedSession(null)} className="text-sm text-slate-500 hover:text-blue-600 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> フォルダに戻る</button>
+         <div className="flex justify-between items-center mb-4">
+            <button onClick={() => setSelectedSession(null)} className="text-sm font-bold text-slate-500 hover:text-blue-600 flex items-center gap-2 bg-white px-4 py-2 rounded-lg border shadow-sm transition-all"><ArrowLeft className="w-4 h-4"/> フォルダに戻る</button>
             
-            <div className="flex gap-2">
+            <div className="flex gap-3">
                 {(selectedSession.status === 'aborted' || selectedSession.status === 'paused' || selectedSession.status === 'processing') && (
-                  <button onClick={() => onResume(selectedSession)} className="bg-amber-500 text-white px-4 py-2 rounded shadow-sm hover:bg-amber-600 text-sm font-bold flex items-center gap-2 animate-pulse">
+                  <button onClick={() => onResume(selectedSession)} className="bg-amber-500 text-white px-5 py-2 rounded-lg shadow-md hover:bg-amber-600 text-sm font-bold flex items-center gap-2 animate-pulse transition-transform active:scale-95">
                     <PlayCircle className="w-4 h-4"/> 続きから再開 ({selectedSession.lastPage}ページ目〜)
                   </button>
                 )}
                 {selectedSession.status === 'processing' && (
-                  <button onClick={() => onForceStop(selectedSession.id)} className="bg-red-500 text-white px-4 py-2 rounded shadow-sm hover:bg-red-600 text-sm font-bold flex items-center gap-2">
+                  <button onClick={() => onForceStop(selectedSession.id)} className="bg-slate-100 text-slate-600 px-5 py-2 rounded-lg hover:bg-red-50 hover:text-red-600 text-sm font-bold flex items-center gap-2 transition-colors">
                     <StopCircle className="w-4 h-4"/> 強制終了
                   </button>
                 )}
@@ -516,56 +570,55 @@ const HistoryView = ({ sessions, onResume, onForceStop, onDelete, currentUser })
   }
 
   return (
-    <div className="h-full flex flex-col animate-in fade-in">
-      <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><FolderOpen className="w-5 h-5 text-blue-600"/> 検査履歴フォルダ</h2>
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex-1 overflow-y-auto p-4">
-        {Object.keys(groupedSessions).length === 0 && <div className="text-center text-slate-400 mt-10">履歴がありません</div>}
+    <div className="h-full flex flex-col animate-in fade-in duration-500">
+      <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-3"><FolderOpen className="w-8 h-8 text-blue-600"/> 検査履歴フォルダ</h2>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex-1 overflow-y-auto p-6">
+        {Object.keys(groupedSessions).length === 0 && <div className="text-center text-slate-400 mt-20 font-medium">履歴フォルダは空です</div>}
         
         {Object.keys(groupedSessions).sort((a,b) => b.localeCompare(a)).map(month => (
-          <div key={month} className="mb-2">
-            <div onClick={() => toggleMonth(month)} className="flex items-center gap-2 cursor-pointer p-2 hover:bg-slate-50 rounded select-none text-slate-700 font-bold">
-              {expandedMonths[month] ? <ChevronDown className="w-4 h-4"/> : <ChevronRight className="w-4 h-4"/>}
-              <Folder className="w-4 h-4 text-blue-400 fill-blue-100"/> {month}
+          <div key={month} className="mb-4">
+            <div onClick={() => toggleMonth(month)} className="flex items-center gap-3 cursor-pointer p-3 hover:bg-slate-50 rounded-xl select-none text-slate-700 font-bold text-lg transition-colors">
+              {expandedMonths[month] ? <ChevronDown className="w-5 h-5 text-blue-500"/> : <ChevronRight className="w-5 h-5 text-slate-400"/>}
+              <Folder className="w-5 h-5 text-blue-500 fill-blue-50"/> {month}
             </div>
             
             {expandedMonths[month] && (
-              <div className="ml-4 border-l border-slate-200 pl-2 mt-1">
+              <div className="ml-5 border-l-2 border-slate-100 pl-4 mt-2 space-y-4">
                 {Object.keys(groupedSessions[month]).sort((a,b) => parseInt(b)-parseInt(a)).map(day => (
-                  <div key={day} className="mb-1">
-                    <div onClick={() => toggleDay(month+day)} className="flex items-center gap-2 cursor-pointer p-2 hover:bg-slate-50 rounded select-none text-sm text-slate-600">
-                      {expandedDays[month+day] ? <ChevronDown className="w-3 h-3"/> : <ChevronRight className="w-3 h-3"/>}
+                  <div key={day}>
+                    <div onClick={() => toggleDay(month+day)} className="flex items-center gap-2 cursor-pointer p-2 hover:bg-slate-50 rounded-lg select-none text-sm font-bold text-slate-600 transition-colors">
+                      {expandedDays[month+day] ? <ChevronDown className="w-4 h-4 text-slate-400"/> : <ChevronRight className="w-4 h-4 text-slate-300"/>}
                       <span>{day}</span>
                     </div>
 
                     {expandedDays[month+day] && (
-                      <div className="ml-5 space-y-1 mt-1">
+                      <div className="ml-6 space-y-2 mt-2">
                         {groupedSessions[month][day].map(session => (
-                           <div key={session.id} onClick={() => setSelectedSession(session)} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-blue-50 border border-slate-100 rounded cursor-pointer group transition-colors">
-                             <div className="flex items-center gap-3 overflow-hidden">
-                                <div className={`p-1.5 rounded ${session.type==='url'?'bg-blue-200 text-blue-700':'bg-green-200 text-green-700'}`}>
-                                   {session.type==='url' ? <ShoppingBag className="w-4 h-4"/> : <FileText className="w-4 h-4"/>}
+                           <div key={session.id} onClick={() => setSelectedSession(session)} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl cursor-pointer group hover:border-blue-200 hover:shadow-md transition-all">
+                             <div className="flex items-center gap-4 overflow-hidden">
+                                <div className={`p-2.5 rounded-xl ${session.type==='url'?'bg-blue-50 text-blue-600':'bg-emerald-50 text-emerald-600'}`}>
+                                   {session.type==='url' ? <ShoppingBag className="w-5 h-5"/> : <FileText className="w-5 h-5"/>}
                                 </div>
                                 <div className="min-w-0">
-                                   <div className="flex items-center gap-2">
-                                     <p className="text-sm font-bold text-slate-700 truncate w-48 md:w-64">{session.target}</p>
+                                   <div className="flex items-center gap-3 mb-1">
+                                     <p className="text-sm font-bold text-slate-700 truncate w-64 md:w-80">{session.target}</p>
                                      <SessionStatusBadge status={session.status} />
                                    </div>
-                                   <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-                                     <User className="w-3 h-3"/> {session.user}
-                                     <span>{new Date(session.createdAt.seconds*1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                                     {session.shopName && <span className="bg-slate-100 px-1 rounded text-[10px]">{session.shopName}</span>}
+                                   <p className="text-xs text-slate-400 flex items-center gap-3">
+                                     <span className="flex items-center gap-1"><User className="w-3 h-3"/> {session.user}</span>
+                                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(session.createdAt.seconds*1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                     {session.shopName && <span className="bg-slate-50 px-1.5 py-0.5 rounded text-[10px] border border-slate-100">{session.shopName}</span>}
                                    </p>
                                 </div>
                              </div>
-                             <div className="flex gap-2 items-center">
-                               {session.summary?.critical > 0 && <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded flex items-center gap-1"><Siren className="w-3 h-3"/> {session.summary.critical}</span>}
-                               <span className="px-2 py-0.5 bg-white border text-slate-500 text-[10px] rounded">全{session.summary?.total}件</span>
+                             <div className="flex gap-3 items-center">
+                               {session.summary?.critical > 0 && <span className="px-2.5 py-1 bg-purple-50 text-purple-700 text-xs font-bold rounded-lg flex items-center gap-1.5 border border-purple-100"><Siren className="w-3 h-3"/> {session.summary.critical}</span>}
+                               <span className="px-3 py-1 bg-slate-50 text-slate-500 text-xs font-medium rounded-lg border border-slate-100">全{session.summary?.total}件</span>
                                
-                               {/* Delete Button for Admin */}
                                {currentUser?.role === 'admin' && (
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
-                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                                     title="削除"
                                 >
                                     <Trash2 className="w-4 h-4" />
@@ -616,6 +669,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   const [shopMeta, setShopMeta] = useState({ count: 0, shopCode: '', shopName: '' });
   const [checkRange, setCheckRange] = useState(30);
   const [sessionId, setSessionId] = useState(null); 
+  const [liveLog, setLiveLog] = useState([]); 
 
   const previousHistory = useMemo(() => {
     if (!targetUrl) return null;
@@ -624,6 +678,8 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   }, [targetUrl, historySessions]);
 
   const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
+
+  const addLog = (msg) => setLiveLog(prev => [msg, ...prev].slice(0, 5));
 
   const fetchShopInfo = async () => {
     if (!config.rakutenAppId) return addToast('楽天アプリIDが設定されていません', 'error');
@@ -663,7 +719,6 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
     }
   };
 
-  // Update Session status logic
   const updateSessionStatus = async (sessId, status, lastPage, details) => {
       if (!db || !sessId) return;
       try {
@@ -696,6 +751,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
                   break;
               }
 
+              addLog(`ページ ${page}/${neededPages} の商品データを取得中...`);
               updateState({ status: `データ取得中... (${page}ページ目)` });
 
               const apiUrl = new URL('/api/rakuten', window.location.origin);
@@ -719,6 +775,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
               for (let i = 0; i < pageProducts.length; i += BATCH_SIZE) {
                   if (stopRef.current) break;
                   const batch = pageProducts.slice(i, i + BATCH_SIZE);
+                  addLog(`AI分析中: ${batch[0].productName.slice(0, 15)}... 他${batch.length-1}件`);
                   
                   const promises = batch.map(item => analyzeItemRisk(item, config.apiKey).then(res => ({ ...item, ...res })));
                   const batchRes = await Promise.all(promises);
@@ -757,6 +814,7 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
       if (!config.apiKey) return addToast('Gemini APIキーが設定されていません', 'error');
       
       setUrlStep('processing');
+      setLiveLog([]);
       updateState({ isProcessing: true, status: '準備中...', progress: 0 });
       stopRef.current = false;
 
@@ -806,34 +864,34 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   if (urlStep === 'input') {
     return (
       <div className="space-y-6 animate-in fade-in w-full">
-        <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-4xl mx-auto text-center">
-            <div className="mb-6">
-                <div className="inline-flex p-4 bg-blue-50 rounded-full mb-4 text-blue-600"><ShoppingBag className="w-12 h-12"/></div>
-                <h2 className="text-2xl font-bold text-slate-800">楽天ショップ自動パトロール</h2>
-                <p className="text-slate-500 mt-2">ショップURLを入力すると、商品数を確認してからチェックを実行できます。</p>
+        <div className="bg-white p-10 rounded-3xl border border-slate-100 shadow-xl shadow-slate-100 max-w-4xl mx-auto text-center">
+            <div className="mb-8">
+                <div className="inline-flex p-6 bg-blue-50 rounded-full mb-6 text-blue-600 shadow-inner"><ShoppingBag className="w-16 h-16"/></div>
+                <h2 className="text-3xl font-bold text-slate-800 tracking-tight">楽天ショップ自動パトロール</h2>
+                <p className="text-slate-500 mt-3 text-lg">ショップURLを入力すると、商品数を確認してからチェックを実行できます。</p>
             </div>
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-center">
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-center max-w-2xl mx-auto">
                 <input 
                     type="text" 
                     value={targetUrl} 
                     onChange={e => updateState({ targetUrl: e.target.value })} 
-                    className="w-full md:w-2/3 px-4 py-3 border rounded-lg text-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+                    className="w-full px-6 py-4 border border-slate-200 rounded-2xl text-lg focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none shadow-sm transition-all" 
                     placeholder="https://www.rakuten.co.jp/shop-name/" 
                 />
-                <button onClick={fetchShopInfo} disabled={isProcessing} className="w-full md:w-auto px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2">
-                   {isProcessing ? <Loader2 className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>} ショップ情報を確認
+                <button onClick={fetchShopInfo} disabled={isProcessing} className="w-full md:w-auto px-10 py-4 bg-slate-900 text-white font-bold text-lg rounded-2xl hover:bg-slate-800 shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3 active:scale-95">
+                   {isProcessing ? <Loader2 className="w-6 h-6 animate-spin"/> : <Search className="w-6 h-6"/>} 確認
                 </button>
             </div>
             {previousHistory && (
-                 <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center justify-center gap-2 text-yellow-800 text-sm">
-                    <Info className="w-4 h-4"/>
-                    <span>過去の履歴あり: {new Date(previousHistory.createdAt.seconds*1000).toLocaleDateString()} ({previousHistory.summary?.total}件)</span>
+                 <div className="mt-8 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-center gap-3 text-amber-800">
+                    <Info className="w-5 h-5"/>
+                    <span className="font-medium">過去の履歴あり: {new Date(previousHistory.createdAt.seconds*1000).toLocaleDateString()} ({previousHistory.summary?.total}件)</span>
                     {previousHistory.status !== 'completed' && (
-                         <button onClick={() => handleStart(previousHistory)} className="ml-2 underline font-bold hover:text-yellow-900">続きから再開する</button>
+                         <button onClick={() => handleStart(previousHistory)} className="ml-2 bg-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm hover:shadow hover:text-amber-900 transition-all">続きから再開</button>
                     )}
                  </div>
             )}
-            {!config.rakutenAppId && <p className="text-red-500 font-bold mt-4">⚠ 設定画面で楽天アプリIDを入力してください</p>}
+            {!config.rakutenAppId && <p className="text-red-500 font-bold mt-6 bg-red-50 inline-block px-6 py-2 rounded-full">⚠ 設定画面で楽天アプリIDを入力してください</p>}
         </div>
       </div>
     );
@@ -842,26 +900,42 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   if (urlStep === 'confirm') {
       return (
           <div className="space-y-6 animate-in fade-in w-full">
-              <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-3xl mx-auto">
-                  <button onClick={handleReset} className="mb-4 text-sm text-slate-400 hover:text-blue-600 flex items-center gap-1"><ArrowLeft className="w-4 h-4"/> 戻る</button>
-                  <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><ShoppingBag className="w-6 h-6 text-blue-600"/> 取得対象の確認</h2>
-                  <div className="bg-slate-50 p-6 rounded-xl mb-8 flex items-center justify-between">
-                      <div>
-                          <p className="text-sm text-slate-500 font-bold">ショップ名</p>
-                          <p className="text-lg font-bold text-slate-800 mb-2">{shopMeta.shopName || '取得中...'}</p>
-                          <p className="text-xs text-slate-400 font-mono truncate max-w-xs">{targetUrl}</p>
+              <div className="bg-white p-10 rounded-3xl border border-slate-100 shadow-xl shadow-slate-100 max-w-4xl mx-auto">
+                  <button onClick={handleReset} className="mb-6 text-sm font-bold text-slate-400 hover:text-blue-600 flex items-center gap-2 transition-colors"><ArrowLeft className="w-5 h-5"/> 戻る</button>
+                  
+                  <h2 className="text-2xl font-bold text-slate-800 mb-8 flex items-center gap-3"><ShoppingBag className="w-8 h-8 text-blue-600"/> 取得対象の確認</h2>
+                  
+                  <div className="bg-slate-50 p-8 rounded-2xl mb-10 flex flex-col md:flex-row items-center justify-between border border-slate-100 gap-6">
+                      <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">TARGET SHOP</p>
+                          <p className="text-2xl font-bold text-slate-800 truncate">{shopMeta.shopName || '取得中...'}</p>
+                          <p className="text-sm text-slate-500 font-mono truncate opacity-70 mt-1">{targetUrl}</p>
                       </div>
-                      <div className="text-right">
-                          <p className="text-sm text-slate-500 font-bold">総出品数</p>
-                          <p className="text-3xl font-bold text-blue-600">{shopMeta.count.toLocaleString()} <span className="text-sm text-slate-400">件</span></p>
+                      <div className="text-right bg-white px-8 py-4 rounded-xl shadow-sm border border-slate-100">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">TOTAL ITEMS</p>
+                          <p className="text-4xl font-bold text-blue-600 tracking-tight">{shopMeta.count.toLocaleString()} <span className="text-sm text-slate-400 font-normal">件</span></p>
                       </div>
                   </div>
-                  <div className="space-y-4">
-                      <p className="font-bold text-slate-700">チェックする範囲を選択してください:</p>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <button onClick={() => { setCheckRange(30); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">最新 30件</div><div className="text-xs text-slate-500">お試しチェック</div></button>
-                          <button onClick={() => { setCheckRange(150); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">最新 150件</div><div className="text-xs text-slate-500">直近の商品</div></button>
-                          <button onClick={() => { setCheckRange(3000); handleStart(null); }} className="p-4 border-2 border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all"><div className="font-bold text-lg text-slate-800">全件 (Max 3000)</div><div className="text-xs text-slate-500">徹底的にチェック</div></button>
+
+                  <div className="space-y-6">
+                      <p className="font-bold text-slate-700 text-lg">チェック範囲を選択してください:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <button onClick={() => { setCheckRange(30); handleStart(null); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+                              <div className="font-bold text-xl text-slate-800 mb-2 group-hover:text-blue-700">クイック</div>
+                              <div className="text-blue-600 font-bold text-3xl mb-1">30 <span className="text-sm font-normal text-slate-500">件</span></div>
+                              <div className="text-xs font-bold text-slate-400 bg-slate-100 inline-block px-2 py-1 rounded">所要時間: 約30秒</div>
+                          </button>
+                          <button onClick={() => { setCheckRange(300); handleStart(null); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+                              <div className="font-bold text-xl text-slate-800 mb-2 group-hover:text-blue-700">スタンダード</div>
+                              <div className="text-blue-600 font-bold text-3xl mb-1">300 <span className="text-sm font-normal text-slate-500">件</span></div>
+                              <div className="text-xs font-bold text-slate-400 bg-slate-100 inline-block px-2 py-1 rounded">所要時間: 約5分</div>
+                          </button>
+                          <button onClick={() => { setCheckRange(3000); handleStart(null); }} className="group p-6 border-2 border-slate-100 hover:border-blue-500 bg-white hover:bg-blue-50/30 rounded-2xl text-left transition-all duration-300 hover:shadow-lg hover:-translate-y-1 relative overflow-hidden">
+                              {shopMeta.count > 3000 && <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">LIMIT APPLIED</div>}
+                              <div className="font-bold text-xl text-slate-800 mb-2 group-hover:text-blue-700">フルスキャン</div>
+                              <div className="text-blue-600 font-bold text-3xl mb-1">Max <span className="text-sm font-normal text-slate-500">3000件</span></div>
+                              <div className="text-xs font-bold text-slate-400 bg-slate-100 inline-block px-2 py-1 rounded">所要時間: 30分〜</div>
+                          </button>
                       </div>
                   </div>
               </div>
@@ -870,32 +944,65 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
   }
 
   if (urlStep === 'processing') {
-      // NEW: Live Monitor View (Real-time Stock Table)
-      // We use ResultTableWithTabs but allow it to update live.
+      const latestItem = results.length > 0 ? results[results.length - 1] : null;
       return (
-          <div className="h-full flex flex-col animate-in fade-in">
-             <div className="flex items-center justify-between mb-4 bg-blue-900 text-white p-4 rounded-lg shadow-lg">
-                 <div className="flex items-center gap-3">
-                     <Activity className="w-6 h-6 animate-pulse text-green-400"/>
-                     <div>
-                         <h2 className="font-bold text-lg">リアルタイム検査中</h2>
-                         <p className="text-xs text-blue-200">{status}</p>
-                     </div>
+          <div className="h-full flex flex-col animate-in fade-in space-y-6">
+             {/* Status Header */}
+             <div className="bg-slate-900 text-white p-8 rounded-3xl shadow-2xl flex flex-col md:flex-row gap-8 items-center relative overflow-hidden">
+                 <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full filter blur-3xl opacity-10 -translate-y-1/2 translate-x-1/3"></div>
+                 
+                 <div className="flex-1 w-full z-10">
+                    <div className="flex items-center gap-4 mb-6">
+                        <div className="relative">
+                            <Activity className="w-10 h-10 text-emerald-400 animate-pulse"/>
+                            <span className="absolute top-0 right-0 w-3 h-3 bg-emerald-400 rounded-full animate-ping"></span>
+                        </div>
+                        <div>
+                            <h2 className="text-2xl font-bold tracking-tight">AIリアルタイム監査中</h2>
+                            <p className="text-blue-200 text-sm font-mono mt-1">{status}</p>
+                        </div>
+                    </div>
+                    <div className="w-full bg-slate-800/50 rounded-full h-4 overflow-hidden mb-3 border border-slate-700">
+                        <div className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-500 ease-out shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: `${progress}%` }}></div>
+                    </div>
+                    <div className="flex justify-between text-xs font-mono text-slate-400">
+                        <span>Progress: {Math.round(progress)}%</span>
+                        <span>Checked: {results.length} items</span>
+                    </div>
                  </div>
-                 <div className="text-right">
-                     <p className="text-2xl font-mono font-bold">{results.length} <span className="text-sm font-normal">件完了</span></p>
-                     <button onClick={() => stopRef.current = true} className="text-xs underline hover:text-red-300 mt-1">中断して結果を見る</button>
+
+                 {/* Live Preview Card */}
+                 <div className="w-full md:w-80 bg-slate-800/80 backdrop-blur rounded-2xl p-5 border border-slate-700/50 flex items-center gap-5 shadow-xl z-10">
+                    {latestItem ? (
+                        <>
+                            <div className="relative">
+                                <img src={latestItem.imageUrl} alt="" className="w-20 h-20 object-cover rounded-xl bg-white shadow-sm" />
+                                {(latestItem.risk === '高' || latestItem.isCritical) && <div className="absolute -top-2 -right-2 bg-red-500 w-4 h-4 rounded-full animate-ping"></div>}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-1">ANALYZING NOW</p>
+                                <p className="text-sm font-bold truncate text-white mb-2">{latestItem.productName}</p>
+                                <div>
+                                    {(latestItem.risk === '高' || latestItem.isCritical) ? 
+                                        <span className="text-red-400 font-bold text-xs flex items-center gap-1 bg-red-500/10 px-2 py-1 rounded"><Siren className="w-3 h-3"/> High Risk</span> : 
+                                        <span className="text-emerald-400 font-bold text-xs flex items-center gap-1 bg-emerald-500/10 px-2 py-1 rounded"><CheckCircle className="w-3 h-3"/> Safe</span>
+                                    }
+                                </div>
+                            </div>
+                        </>
+                    ) : <div className="text-slate-500 text-sm flex items-center justify-center w-full h-20 font-mono">Waiting for stream...</div>}
                  </div>
-             </div>
-             
-             {/* Progress Bar */}
-             <div className="w-full bg-slate-200 h-2 rounded-full mb-6 overflow-hidden">
-                 <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${progress}%` }}></div>
              </div>
 
-             {/* Live Table */}
-             <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm">
-                 <ResultTableWithTabs items={results} currentUser={currentUser} title="検出済み商品リスト" showDownload={false} />
+             {/* Live Table (Growing List) */}
+             <div className="flex-1 min-h-0 bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden flex flex-col">
+                 <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                     <h3 className="font-bold text-slate-700 flex items-center gap-2"><Terminal className="w-4 h-4"/> 検出ログ</h3>
+                     <button onClick={() => stopRef.current = true} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-red-100">中断して結果を見る</button>
+                 </div>
+                 <div className="flex-1 overflow-hidden">
+                     <ResultTableWithTabs items={results} currentUser={currentUser} title="" showDownload={false} />
+                 </div>
              </div>
           </div>
       );
@@ -907,6 +1014,10 @@ const UrlSearchView = ({ config, db, currentUser, addToast, state, setState, sto
 
   return null;
 };
+
+// ... (CsvSearchView, UserManagementView, SettingsView, App are same, just ensuring App calls Updated UrlSearchView) ...
+// For completeness in "overwrite all", I include the rest below unchanged or slightly adapted if needed.
+// CsvSearchView, UserManagementView, SettingsView, App (Main) logic remains valid.
 
 const CsvSearchView = ({ config, db, currentUser, addToast, state, setState, stopRef, isHighSpeed, setIsHighSpeed }) => {
   const { files, results, isProcessing, progress } = state;
